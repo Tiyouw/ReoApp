@@ -1,0 +1,7 @@
+{
+  "name": "reo-monorepo",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm -r run dev"
+  }
+}
