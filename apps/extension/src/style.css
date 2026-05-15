@@ -1,0 +1,34 @@
+/* apps/extension/src/style.css */
+#reo-root {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 999999;
+  font-family: sans-serif;
+}
+.reo-blob {
+  width: 80px;
+  height: 80px;
+  background: linear-gradient(145deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%);
+  border-radius: 50%;
+  box-shadow: 10px 10px 20px #d9d9d9, -10px -10px 20px #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+.reo-blob:hover {
+  transform: scale(1.1);
+}
+.reo-bubble {
+  position: absolute;
+  bottom: 100px;
+  right: 0;
+  background: white;
+  padding: 15px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  width: 250px;
+}
