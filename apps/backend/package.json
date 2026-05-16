@@ -2,7 +2,7 @@
   "name": "reo-backend",
   "version": "1.0.0",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file=.env src/index.ts",
     "test": "vitest run"
   },
   "dependencies": {
