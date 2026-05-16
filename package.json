@@ -2,7 +2,7 @@
   "name": "reo-monorepo",
   "private": true,
   "scripts": {
-    "dev": "pnpm -r run dev"
+    "dev": "pnpm -r --parallel run dev"
   },
   "pnpm": {
     "approvedBuilds": {
