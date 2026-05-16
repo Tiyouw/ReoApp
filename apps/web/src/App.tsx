@@ -16,7 +16,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:3333/api/reo/state')
+    fetch('https://reo-backend-287020541953.us-central1.run.app/api/reo/state')
       .then(res => res.json())
       .then(data => {
         setPersona(data.persona);
@@ -27,7 +27,7 @@ export default function App() {
   }, []);
 
   const handleSave = () => {
-    fetch('http://localhost:3333/api/reo/state', {
+    fetch('https://reo-backend-287020541953.us-central1.run.app/api/reo/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ persona, task })

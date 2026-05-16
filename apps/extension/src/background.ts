@@ -1,6 +1,6 @@
 chrome.runtime.onMessage.addListener((request: any, sender: any, sendResponse: any) => {
   if (request.action === 'fetchChat') {
-    fetch('http://localhost:3333/api/reo/chat', {
+    fetch('https://reo-backend-287020541953.us-central1.run.app/api/reo/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ context: request.context })

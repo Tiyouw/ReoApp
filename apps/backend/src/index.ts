@@ -35,7 +35,7 @@ app.post('/api/reo/chat', async (req, res) => {
   const prompt = `${systemPrompt}\n\nThe user is currently supposed to be working on this task: "${reoState.task}".\nHowever, Context: ${context}\nGive a short 1-2 sentence reprimand.`;
   
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContent(prompt);
     const text = result.response.text();
     res.json({ message: text });
