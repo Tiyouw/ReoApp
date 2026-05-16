@@ -3,21 +3,23 @@ import React, { useState, useEffect } from 'react';
 export function ReoBubble() {
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [visible, setVisible] = useState(false);
   
-  const triggerReo = (reason) => {
+  const triggerReo = (reason: string) => {
     setIsLoading(true);
-    chrome.runtime.sendMessage({ action: 'fetchChat', context: reason }, (response) => {
+    chrome.runtime.sendMessage({ action: 'fetchChat', context: reason }, (response: any) => {
       setIsLoading(false);
       if (chrome.runtime.lastError || !response || !response.success) {
         setMessage('Bzzz... Koneksi API error dari Background Script.');
       } else {
         setMessage(response.message);
       }
+      setVisible(true);
     });
   };
 
   useEffect(() => {
-    let timeoutId;
+    let timeoutId: any;
     const url = window.location.href;
     const isDistractive = url.includes('youtube.com') || url.includes('twitter.com') || url.includes('x.com') || url.includes('instagram.com');
     
