@@ -3,5 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "pnpm -r run dev"
+  },
+  "pnpm": {
+    "approvedBuilds": {
+      "esbuild": true
+    }
   }
 }
