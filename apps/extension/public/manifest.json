@@ -3,11 +3,20 @@
   "name": "Reo Productivity Companion",
   "version": "1.0",
   "permissions": ["activeTab", "storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "css": ["style.css"]
+      "css": ["content.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["mascot.png"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

@@ -2,25 +2,52 @@ import React, { useState, useEffect } from 'react';
 
 export function ReoBubble() {
   const [message, setMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   
+  const triggerReo = (reason) => {
+    setIsLoading(true);
+    chrome.runtime.sendMessage({ action: 'fetchChat', context: reason }, (response) => {
+      setIsLoading(false);
+      if (chrome.runtime.lastError || !response || !response.success) {
+        setMessage('Bzzz... Koneksi API error dari Background Script.');
+      } else {
+        setMessage(response.message);
+      }
+    });
+  };
+
   useEffect(() => {
-    // Distraction detection simulation
+    let timeoutId;
     const url = window.location.href;
-    if (url.includes('youtube.com') || url.includes('twitter.com')) {
-      fetch('http://localhost:3000/api/reo/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ persona: 'jowo', context: `User is slacking on ${url}` })
-      })
-      .then(res => res.json())
-      .then(data => setMessage(data.message));
+    const isDistractive = url.includes('youtube.com') || url.includes('twitter.com') || url.includes('x.com') || url.includes('instagram.com');
+    
+    if (isDistractive) {
+      // Auto-nudge after 10 seconds of being on the site
+      timeoutId = setTimeout(() => {
+        triggerReo(`User has been slacking on ${url} for too long!`);
+      }, 10000);
     }
+    return () => clearTimeout(timeoutId);
   }, []);
 
+  // Auto-hide message after 15 seconds
+  useEffect(() => {
+    if (message) {
+      const hideId = setTimeout(() => setMessage(''), 15000);
+      return () => clearTimeout(hideId);
+    }
+  }, [message]);
+
   return (
-    <div>
+    <>
       {message && <div className="reo-bubble">{message}</div>}
-      <div className="reo-blob">👁️</div>
-    </div>
+      <div className="reo-blob" onClick={() => triggerReo("User poked Reo manually.")}>
+        <img 
+          src={chrome.runtime.getURL('mascot.png')} 
+          alt="Reo Mascot" 
+          style={{ opacity: isLoading ? 0.7 : 1, filter: isLoading ? 'grayscale(50%)' : 'none' }}
+        />
+      </div>
+    </>
   );
 }
