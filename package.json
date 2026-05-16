@@ -8,5 +8,10 @@
     "approvedBuilds": {
       "esbuild": true
     }
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.42",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3"
   }
 }
