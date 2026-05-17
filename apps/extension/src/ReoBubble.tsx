@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const API_BASE = 'https://reo-backend-287020541953.us-central1.run.app';
+const API_BASE = 'https://reo-backend-287020541953.asia-southeast2.run.app';
 
 /* ── Escalation thresholds (seconds) ── */
 const THRESHOLDS = [
