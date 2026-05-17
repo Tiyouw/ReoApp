@@ -1,7 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Reo Productivity Companion",
-  "version": "1.0",
+  "version": "2.0",
+  "description": "AI-powered productivity buddy that keeps you focused and off distracting sites.",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "permissions": ["activeTab", "storage"],
   "background": {
     "service_worker": "background.js"
