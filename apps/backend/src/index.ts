@@ -97,7 +97,13 @@ Respond in 1-3 sentences matching your persona.`;
     const result = await model.generateContent(prompt);
     res.json({ message: result.response.text() });
   } catch (error: any) {
-    res.json({ message: `[FALLBACK] Hadeh! "${task}" belum beres. Balik kerja! | ${error.message}` });
+    console.error('Chat AI error:', error.message);
+    const fallbacks: Record<string, string> = {
+      jowo: `Waduh, otak AI-ku lagi error! Tapi inget ya, "${task}" kudu rampung. Ayo kerja!`,
+      jaksel: `Gue lagi nge-lag nih literally. But seriously, "${task}" harus beres ya bestie~`,
+      professional: `I'm experiencing a temporary issue. Please continue working on "${task}" — I'll be back shortly.`,
+    };
+    res.json({ message: fallbacks[persona] || fallbacks.jowo });
   }
 });
 

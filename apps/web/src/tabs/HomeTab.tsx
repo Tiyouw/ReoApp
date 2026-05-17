@@ -85,44 +85,49 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
         <p className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Powered by Gemini&nbsp;AI</p>
       </div>
 
-      {/* Task */}
-      <div className="card md:col-span-7">
-        <div className="flex items-center gap-2.5 mb-5">
-          <div className="step-num">1</div>
-          <h2 className="text-lg font-bold tracking-tight">Set Your Target</h2>
+      {/* Task + Persona wrapped in form */}
+      <form onSubmit={e => { e.preventDefault(); handleSave(); }} className="md:col-span-12 grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-5">
+        {/* Task */}
+        <div className="card md:col-span-7">
+          <div className="flex items-center gap-2.5 mb-5">
+            <div className="step-num">1</div>
+            <h2 className="text-lg font-bold tracking-tight">Set Your Target</h2>
+          </div>
+          <label htmlFor="task-input" className="text-sm font-medium block mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+            What are you working on right now?
+          </label>
+          <input id="task-input" name="task" type="text" value={task} onChange={e => setTask(e.target.value)}
+            placeholder="e.g. Writing my thesis chapter 2…" className="input-field mb-2" autoComplete="off" />
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+            {saved ? '✓ Saved! Reo will use this.' : 'Press Enter or click Save to confirm. Reo will remind you about this.'}
+          </p>
         </div>
-        <label htmlFor="task-input" className="text-sm font-medium block mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-          What are you working on right now?
-        </label>
-        <input id="task-input" name="task" type="text" value={task} onChange={e => setTask(e.target.value)}
-          placeholder="e.g. Writing my thesis chapter 2…" className="input-field mb-2" autoComplete="off" />
-        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Reo will remind you about this when you slack off.</p>
-      </div>
 
-      {/* Persona */}
-      <div className="card md:col-span-5 flex flex-col">
-        <div className="flex items-center gap-2.5 mb-5">
-          <div className="step-num">2</div>
-          <h2 className="text-lg font-bold tracking-tight">Pick a Vibe</h2>
+        {/* Persona */}
+        <div className="card md:col-span-5 flex flex-col">
+          <div className="flex items-center gap-2.5 mb-5">
+            <div className="step-num">2</div>
+            <h2 className="text-lg font-bold tracking-tight">Pick a Vibe</h2>
+          </div>
+          <fieldset className="flex flex-col gap-2 flex-1">
+            <legend className="sr-only">Choose Reo's personality</legend>
+            {PERSONAS.map(p => (
+              <button key={p.value} type="button" role="radio" aria-checked={persona === p.value}
+                onClick={() => setPersona(p.value)} className="persona-option" data-selected={persona === p.value}>
+                <span className={`badge ${p.color} text-[0.6875rem]`}>{p.label.split(' ')[0]}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold">{p.label}</div>
+                  <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{p.desc}</div>
+                </div>
+                {persona === p.value && <span className="text-[#2563EB]">{icons.check}</span>}
+              </button>
+            ))}
+          </fieldset>
+          <button type="submit" disabled={saving} className="btn-primary w-full mt-5" aria-label="Save Reo settings">
+            {saving ? <>{icons.loader} Saving…</> : saved ? <>{icons.check} Saved!</> : 'Save Settings'}
+          </button>
         </div>
-        <fieldset className="flex flex-col gap-2 flex-1">
-          <legend className="sr-only">Choose Reo's personality</legend>
-          {PERSONAS.map(p => (
-            <button key={p.value} type="button" role="radio" aria-checked={persona === p.value}
-              onClick={() => setPersona(p.value)} className="persona-option" data-selected={persona === p.value}>
-              <span className={`badge ${p.color} text-[0.6875rem]`}>{p.label.split(' ')[0]}</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold">{p.label}</div>
-                <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{p.desc}</div>
-              </div>
-              {persona === p.value && <span className="text-[#2563EB]">{icons.check}</span>}
-            </button>
-          ))}
-        </fieldset>
-        <button onClick={handleSave} disabled={saving} className="btn-primary w-full mt-5" aria-label="Save Reo settings">
-          {saving ? <>{icons.loader} Saving…</> : saved ? <>{icons.check} Saved!</> : 'Save Settings'}
-        </button>
-      </div>
+      </form>
 
       {/* Features */}
       <div className="md:col-span-12 mt-4">
