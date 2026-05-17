@@ -18,6 +18,18 @@ function getPersonaDesc(persona: string): string {
   return 'You speak politely, professionally, and straight to the point.';
 }
 
+/* ── Strip markdown from AI responses ── */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')  // bold
+    .replace(/\*(.+?)\*/g, '$1')      // italic
+    .replace(/_(.+?)_/g, '$1')        // underscore italic
+    .replace(/`(.+?)`/g, '$1')        // inline code
+    .replace(/^#+\s*/gm, '')          // headings
+    .replace(/^[\-\*]\s+/gm, '• ')   // list bullets
+    .trim();
+}
+
 /* ── Register device ── */
 app.post('/api/reo/device/register', async (req, res) => {
   const { device_token } = req.body;
@@ -90,12 +102,12 @@ app.post('/api/reo/chat', requireDeviceToken, async (req, res) => {
   const prompt = `You are Reo, a productivity companion. ${getPersonaDesc(persona)}
 The user is working on: "${task}".
 User says: "${message || req.body.context || ''}"
-Respond in 1-3 sentences matching your persona.`;
+Respond in 1-3 sentences matching your persona. Do NOT use any markdown formatting — no asterisks, no bold, no lists. Plain text only.`;
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent(prompt);
-    res.json({ message: result.response.text() });
+    res.json({ message: stripMarkdown(result.response.text()) });
   } catch (error: any) {
     console.error('Chat AI error:', error.message);
     const fallbacks: Record<string, string> = {
@@ -142,13 +154,13 @@ app.post('/api/reo/nudge', requireDeviceToken, async (req, res) => {
 Escalation level: ${levelLabel} — ${level === 0 ? 'be gentle and friendly' : level === 1 ? 'be firm and direct' : 'go FULL savage, maximum guilt trip'}.
 User task: "${task}". They are on ${domain} for ${time_on_site_seconds || 0} seconds.
 They have been nudged ${todayNudges || 0} times today already.
-Give a ${level === 2 ? '2-3' : '1-2'} sentence reprimand in character.`;
+Give a ${level === 2 ? '2-3' : '1-2'} sentence reprimand in character. Do NOT use any markdown formatting — no asterisks, no bold, no lists. Plain text only.`;
 
   let aiMessage: string;
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent(prompt);
-    aiMessage = result.response.text();
+    aiMessage = stripMarkdown(result.response.text());
   } catch {
     aiMessage = `Heh! "${task}" belum selesai, malah buka ${domain}. Balik kerja!`;
   }
@@ -336,13 +348,13 @@ app.get('/api/reo/summary/today', requireDeviceToken, async (req, res) => {
 
   const prompt = `You are Reo. Write a brief daily productivity summary in ${personaStyle} style.
 Stats: ${totalNudges} nudges, ${totalFocus} min focused, top sites: ${topSites.map(s => s[0]).join(', ') || 'none'}.
-Task: "${settings?.task || 'general'}". Keep it 2-4 sentences, encouraging but honest.`;
+Task: "${settings?.task || 'general'}". Keep it 2-4 sentences, encouraging but honest. Do NOT use any markdown formatting — no asterisks, no bold, no lists. Plain text only.`;
 
   let aiSummary: string;
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent(prompt);
-    aiSummary = result.response.text();
+    aiSummary = stripMarkdown(result.response.text());
   } catch {
     aiSummary = `Today: ${totalNudges} nudges, ${totalFocus} min focused. Keep going!`;
   }

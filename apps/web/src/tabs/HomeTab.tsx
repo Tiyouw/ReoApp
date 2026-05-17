@@ -15,6 +15,12 @@ const FEATURES = [
   { icon: icons.puzzle, title: 'Chrome Extension', desc: 'Lives in your browser — intervenes right when you need it.', bg: 'bg-[#FDF4FF]', fg: 'text-[#9333EA]' },
 ];
 
+interface Task {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 function getGreeting(): string {
   const h = new Date().getHours();
   if (h < 5) return 'Still up? Let\u2019s be productive';
@@ -24,33 +30,73 @@ function getGreeting(): string {
   return 'Night owl mode activated';
 }
 
+function loadTasks(): Task[] {
+  try {
+    return JSON.parse(localStorage.getItem('reo_tasks') || '[]');
+  } catch { return []; }
+}
+
+function saveTasks(tasks: Task[]) {
+  localStorage.setItem('reo_tasks', JSON.stringify(tasks));
+}
+
 export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void }) {
   const [persona, setPersona] = useState('jowo');
-  const [task, setTask] = useState('');
+  const [tasks, setTasks] = useState<Task[]>(loadTasks);
+  const [newTask, setNewTask] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Get the active (first uncompleted) task
+  const activeTask = tasks.find(t => !t.done)?.text || '';
+  const completedCount = tasks.filter(t => t.done).length;
+
   useEffect(() => {
     reoApi.getState().then(data => {
       setPersona(data.persona || 'jowo');
-      setTask(data.task || '');
+      // If no local tasks but backend has one, seed it
+      if (tasks.length === 0 && data.task) {
+        const seeded = [{ id: crypto.randomUUID(), text: data.task, done: false }];
+        setTasks(seeded);
+        saveTasks(seeded);
+      }
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
 
+  // Sync active task to backend whenever tasks change
+  useEffect(() => {
+    saveTasks(tasks);
+  }, [tasks]);
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      await reoApi.saveState({ persona, task });
+      await reoApi.saveState({ persona, task: activeTask });
       setSaved(true);
-      showToast('Settings saved — Reo is ready');
+      showToast('Settings saved — Reo knows your tasks now');
       setTimeout(() => setSaved(false), 3000);
     } catch {
       showToast('Failed to save. Check your connection.', 'error');
     } finally {
       setSaving(false);
     }
+  };
+
+  const addTask = () => {
+    const text = newTask.trim();
+    if (!text) return;
+    setTasks(prev => [...prev, { id: crypto.randomUUID(), text, done: false }]);
+    setNewTask('');
+  };
+
+  const toggleTask = (id: string) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  };
+
+  const removeTask = (id: string) => {
+    setTasks(prev => prev.filter(t => t.id !== id));
   };
 
   if (loading) {
@@ -69,38 +115,91 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
           <h1 className="text-2xl md:text-[2rem] font-extrabold leading-tight tracking-tight mb-3" style={{ textWrap: 'balance' as any }}>
             Your Buddy for Getting Things&nbsp;Done
           </h1>
-          <p className="text-[0.9375rem] leading-relaxed max-w-md" style={{ color: 'var(--color-text-secondary)' }}>
-            Reo keeps you focused, accountable, and moving forward — together.
-          </p>
+          {activeTask ? (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="badge badge-blue">{icons.target} Current Focus</span>
+              <span className="font-semibold">{activeTask}</span>
+            </div>
+          ) : (
+            <p className="text-[0.9375rem] leading-relaxed max-w-md" style={{ color: 'var(--color-text-secondary)' }}>
+              Add a task below to get started!
+            </p>
+          )}
         </div>
         <div className="flex-shrink-0 mascot-idle">
           <img src="/mascot.png" alt="Reo mascot" width={144} height={144} className="object-contain" fetchPriority="high" />
         </div>
       </div>
 
-      {/* Accent */}
+      {/* Progress card */}
       <div className="card md:col-span-4 flex flex-col justify-center gap-3 text-center">
         <div className="feature-icon bg-[#DBEAFE] text-[#2563EB] mx-auto">{icons.target}</div>
-        <h2 className="text-lg font-extrabold leading-snug">Less Procrastinating.<br />More Finishing.</h2>
+        <h2 className="text-lg font-extrabold leading-snug">
+          {tasks.length === 0 ? 'No Tasks Yet' : `${completedCount}/${tasks.length} Done`}
+        </h2>
+        {tasks.length > 0 && (
+          <div className="w-full bg-[#E2E8F0] rounded-full h-2">
+            <div className="bg-[#2563EB] h-2 rounded-full transition-all duration-500"
+              style={{ width: `${tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0}%` }} />
+          </div>
+        )}
         <p className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Powered by Gemini&nbsp;AI</p>
       </div>
 
       {/* Task + Persona wrapped in form */}
       <form onSubmit={e => { e.preventDefault(); handleSave(); }} className="md:col-span-12 grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-5">
-        {/* Task */}
+        {/* Task List */}
         <div className="card md:col-span-7">
-          <div className="flex items-center gap-2.5 mb-5">
+          <div className="flex items-center gap-2.5 mb-4">
             <div className="step-num">1</div>
-            <h2 className="text-lg font-bold tracking-tight">Set Your Target</h2>
+            <h2 className="text-lg font-bold tracking-tight">Your Tasks</h2>
+            <span className="text-xs font-medium ml-auto" style={{ color: 'var(--color-text-tertiary)' }}>
+              {tasks.length > 0 ? `${completedCount} of ${tasks.length} done` : ''}
+            </span>
           </div>
-          <label htmlFor="task-input" className="text-sm font-medium block mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-            What are you working on right now?
-          </label>
-          <input id="task-input" name="task" type="text" value={task} onChange={e => setTask(e.target.value)}
-            placeholder="e.g. Writing my thesis chapter 2…" className="input-field mb-2" autoComplete="off" />
-          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-            {saved ? '✓ Saved! Reo will use this.' : 'Press Enter or click Save to confirm. Reo will remind you about this.'}
-          </p>
+
+          {/* Task input */}
+          <div className="flex gap-2 mb-4">
+            <input type="text" value={newTask} onChange={e => setNewTask(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTask(); } }}
+              placeholder="Add a new task…" className="input-field flex-1" autoComplete="off" />
+            <button type="button" onClick={addTask} disabled={!newTask.trim()}
+              className="btn-primary px-3 flex-shrink-0" aria-label="Add task">
+              {icons.plus}
+            </button>
+          </div>
+
+          {/* Task list */}
+          {tasks.length === 0 ? (
+            <div className="text-center py-6">
+              <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
+                No tasks yet. Add one above — Reo will remind you!
+              </p>
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {tasks.map((t, i) => (
+                <li key={t.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
+                  t.done ? 'opacity-50' : i === tasks.findIndex(x => !x.done) ? 'bg-[#DBEAFE]/50 ring-1 ring-[#2563EB]/20' : ''
+                }`}>
+                  <button type="button" onClick={() => toggleTask(t.id)}
+                    className={`w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
+                      t.done ? 'bg-[#2563EB] border-[#2563EB] text-white' : 'border-[#CBD5E1]'
+                    }`} aria-label={t.done ? 'Mark incomplete' : 'Mark complete'}>
+                    {t.done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+                  </button>
+                  <span className={`text-sm flex-1 ${t.done ? 'line-through' : 'font-medium'}`}>{t.text}</span>
+                  {!t.done && i === tasks.findIndex(x => !x.done) && (
+                    <span className="badge badge-blue text-[0.625rem]">Active</span>
+                  )}
+                  <button type="button" onClick={() => removeTask(t.id)}
+                    className="text-[#94A3B8] hover:text-[#DC2626] transition-colors flex-shrink-0" aria-label="Remove task">
+                    {icons.x}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* Persona */}

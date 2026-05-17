@@ -2,20 +2,31 @@ import React, { useState, useEffect, useRef } from 'react';
 import { reoApi } from '../api';
 import { icons } from '../icons';
 
-const DEFAULT_MINUTES = 25;
+const DURATION_OPTIONS = [15, 25, 45, 60];
 
 export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void }) {
-  const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
+  const [duration, setDuration] = useState(25);
+  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
   const [running, setRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [task, setTask] = useState('');
   const [completedToday, setCompletedToday] = useState(0);
+  const [totalMinutes, setTotalMinutes] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load task from settings
+  // Load task + today's stats
   useEffect(() => {
     reoApi.getState().then(d => setTask(d.task || '')).catch(() => {});
+    reoApi.getStats('1d').then(d => {
+      setCompletedToday(d.total_focus_minutes > 0 ? Math.ceil(d.total_focus_minutes / 25) : 0);
+      setTotalMinutes(d.total_focus_minutes || 0);
+    }).catch(() => {});
   }, []);
+
+  // Update seconds when duration changes (only when not running)
+  useEffect(() => {
+    if (!sessionId) setSecondsLeft(duration * 60);
+  }, [duration]);
 
   // Timer tick
   useEffect(() => {
@@ -38,9 +49,9 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
     try {
       const res = await reoApi.startFocus(task);
       setSessionId(res.session_id);
-      setSecondsLeft(DEFAULT_MINUTES * 60);
+      setSecondsLeft(duration * 60);
       setRunning(true);
-      showToast('Focus session started — lock in!');
+      showToast(`${duration} min focus session started — lock in!`);
     } catch {
       showToast('Failed to start session', 'error');
     }
@@ -52,7 +63,8 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
       try {
         await reoApi.endFocus(sessionId, true);
         setCompletedToday(c => c + 1);
-        showToast(`Session complete! ${DEFAULT_MINUTES} min focused.`);
+        setTotalMinutes(m => m + duration);
+        showToast(`Session complete! ${duration} min focused.`);
       } catch {}
     }
     setSessionId(null);
@@ -65,7 +77,7 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
       try { await reoApi.endFocus(sessionId, false); } catch {}
     }
     setSessionId(null);
-    setSecondsLeft(DEFAULT_MINUTES * 60);
+    setSecondsLeft(duration * 60);
     showToast('Session cancelled', 'error');
   };
 
@@ -78,26 +90,44 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
 
   const min = Math.floor(secondsLeft / 60);
   const sec = secondsLeft % 60;
-  const progress = 1 - secondsLeft / (DEFAULT_MINUTES * 60);
+  const progress = 1 - secondsLeft / (duration * 60);
   const circumference = 2 * Math.PI * 90;
   const strokeDashoffset = circumference * (1 - progress);
 
   return (
     <div className="flex flex-col items-center gap-6 py-4">
+      {/* Duration selector */}
+      {!sessionId && (
+        <div className="flex gap-2">
+          {DURATION_OPTIONS.map(d => (
+            <button key={d} type="button" onClick={() => setDuration(d)}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                d === duration
+                  ? 'bg-[#2563EB] text-white shadow-sm'
+                  : 'bg-[#F1F5F9] hover:bg-[#E2E8F0]'
+              }`} style={d !== duration ? { color: 'var(--color-text-secondary)' } : {}}>
+              {d}m
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Timer circle */}
       <div className="relative w-56 h-56">
         <svg width="224" height="224" viewBox="0 0 200 200" aria-label={`${min} minutes ${sec} seconds remaining`}>
           <circle cx="100" cy="100" r="90" fill="none" stroke="#E2E8F0" strokeWidth="6" />
-          <circle cx="100" cy="100" r="90" fill="none" stroke="#2563EB" strokeWidth="6"
-            strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset}
-            transform="rotate(-90 100 100)" style={{ transition: 'stroke-dashoffset 0.5s ease-out' }} />
+          <circle cx="100" cy="100" r="90" fill="none"
+            stroke={progress > 0.8 ? '#DC2626' : progress > 0.5 ? '#EA580C' : '#2563EB'}
+            strokeWidth="6" strokeLinecap="round"
+            strokeDasharray={circumference} strokeDashoffset={strokeDashoffset}
+            transform="rotate(-90 100 100)" style={{ transition: 'stroke-dashoffset 0.5s ease-out, stroke 0.5s' }} />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div className="text-4xl font-extrabold tracking-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
           </div>
           <div className="text-xs font-medium mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
-            {running ? 'Focusing…' : sessionId ? 'Paused' : 'Ready'}
+            {running ? 'Focusing…' : sessionId ? 'Paused' : `${duration} min session`}
           </div>
         </div>
       </div>
@@ -136,11 +166,15 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
         )}
       </div>
 
-      {/* Today's sessions */}
-      <div className="card w-full max-w-sm text-center mt-2">
-        <div className="flex items-center justify-center gap-2 text-sm font-semibold">
-          {icons.trophy}
-          <span>Today: {completedToday} session{completedToday !== 1 ? 's' : ''} completed</span>
+      {/* Today's stats */}
+      <div className="grid grid-cols-2 gap-3 w-full max-w-sm mt-2">
+        <div className="card text-center py-3">
+          <div className="text-xl font-extrabold" style={{ fontVariantNumeric: 'tabular-nums' }}>{completedToday}</div>
+          <div className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Sessions Today</div>
+        </div>
+        <div className="card text-center py-3">
+          <div className="text-xl font-extrabold" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalMinutes}m</div>
+          <div className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Total Focused</div>
         </div>
       </div>
     </div>

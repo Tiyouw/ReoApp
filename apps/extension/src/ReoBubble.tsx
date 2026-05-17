@@ -84,8 +84,14 @@ export function ReoBubble() {
   // Detect distracting site and start timer
   useEffect(() => {
     const url = window.location.hostname.replace('www.', '');
+
+    // Never nudge on Reo's own dashboard or productive sites
+    const whitelist = ['run.app', 'localhost', 'github.com', 'docs.google.com', 'drive.google.com',
+      'notion.so', 'figma.com', 'stackoverflow.com', 'gitlab.com', 'supabase.com'];
+    const isWhitelisted = whitelist.some(s => url.includes(s));
+
     const defaultSites = ['youtube.com', 'twitter.com', 'x.com', 'instagram.com', 'tiktok.com', 'reddit.com'];
-    isDistractiveRef.current = defaultSites.some(s => url.includes(s));
+    isDistractiveRef.current = !isWhitelisted && defaultSites.some(s => url.includes(s));
 
     if (isDistractiveRef.current) {
       timerRef.current = setInterval(() => {
