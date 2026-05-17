@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { supabase } from './supabase';
 import { requireDeviceToken } from './middleware';
@@ -354,6 +355,14 @@ Task: "${settings?.task || 'general'}". Keep it 2-4 sentences, encouraging but h
     .single();
 
   res.json(summary);
+});
+
+/* ── Serve web frontend (production) ── */
+const webDistPath = path.join(__dirname, '..', '..', 'web', 'dist');
+app.use(express.static(webDistPath));
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  res.sendFile(path.join(webDistPath, 'index.html'));
 });
 
 /* ── Start server ── */

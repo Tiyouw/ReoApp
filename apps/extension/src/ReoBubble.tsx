@@ -9,10 +9,7 @@ const THRESHOLDS = [
   { seconds: 300, level: 2 },  // savage
 ];
 
-function getDeviceToken(): string {
-  // Sync with web dashboard token
-  return localStorage.getItem('reo_device_token') || 'extension-default';
-}
+
 
 export function ReoBubble() {
   const [message, setMessage] = useState('');
@@ -20,14 +17,33 @@ export function ReoBubble() {
   const [visible, setVisible] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [lastNudgeLevel, setLastNudgeLevel] = useState(-1);
+  const [deviceToken, setDeviceToken] = useState('extension-default');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isDistractiveRef = useRef(false);
+
+  // Load or create device token from chrome.storage
+  useEffect(() => {
+    chrome.storage.local.get('reo_device_token', (result) => {
+      if (result.reo_device_token) {
+        setDeviceToken(result.reo_device_token);
+      } else {
+        const newToken = 'ext-' + crypto.randomUUID();
+        chrome.storage.local.set({ reo_device_token: newToken });
+        setDeviceToken(newToken);
+        // Register the new token with the backend
+        fetch(`${API_BASE}/api/reo/device/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_token: newToken }),
+        }).catch(() => {});
+      }
+    });
+  }, []);
 
   const triggerNudge = async (escalationLevel: number) => {
     if (isLoading) return;
     setIsLoading(true);
 
-    const token = getDeviceToken();
     const siteUrl = window.location.href;
 
     try {
@@ -36,7 +52,7 @@ export function ReoBubble() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-device-token': token,
+          'x-device-token': deviceToken,
         },
         body: JSON.stringify({
           site_url: siteUrl,

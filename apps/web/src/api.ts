@@ -1,6 +1,6 @@
 const API_BASE = import.meta.env.DEV
   ? 'http://localhost:3333'
-  : 'https://reo-backend-287020541953.us-central1.run.app';
+  : '';
 
 function getDeviceToken(): string {
   let token = localStorage.getItem('reo_device_token');
