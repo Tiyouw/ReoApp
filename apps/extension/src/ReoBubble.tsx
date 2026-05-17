@@ -1,53 +1,143 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+
+const API_BASE = 'https://reo-backend-287020541953.us-central1.run.app';
+
+/* ── Escalation thresholds (seconds) ── */
+const THRESHOLDS = [
+  { seconds: 30, level: 0 },   // gentle
+  { seconds: 120, level: 1 },  // firm
+  { seconds: 300, level: 2 },  // savage
+];
+
+function getDeviceToken(): string {
+  // Sync with web dashboard token
+  return localStorage.getItem('reo_device_token') || 'extension-default';
+}
 
 export function ReoBubble() {
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [visible, setVisible] = useState(false);
-  
-  const triggerReo = (reason: string) => {
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [lastNudgeLevel, setLastNudgeLevel] = useState(-1);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isDistractiveRef = useRef(false);
+
+  const triggerNudge = async (escalationLevel: number) => {
+    if (isLoading) return;
     setIsLoading(true);
-    chrome.runtime.sendMessage({ action: 'fetchChat', context: reason }, (response: any) => {
-      setIsLoading(false);
-      if (chrome.runtime.lastError || !response || !response.success) {
-        setMessage('Bzzz... Koneksi API error dari Background Script.');
-      } else {
-        setMessage(response.message);
-      }
-      setVisible(true);
-    });
+
+    const token = getDeviceToken();
+    const siteUrl = window.location.href;
+
+    try {
+      // Try new nudge API first
+      const res = await fetch(`${API_BASE}/api/reo/nudge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-device-token': token,
+        },
+        body: JSON.stringify({
+          site_url: siteUrl,
+          time_on_site_seconds: elapsedSec,
+          escalation_level: escalationLevel,
+        }),
+      });
+      const data = await res.json();
+      setMessage(data.message || 'Hey! Get back to work!');
+    } catch {
+      // Fallback to old chat API via background script
+      chrome.runtime.sendMessage(
+        { action: 'fetchChat', context: `User on ${siteUrl} for ${elapsedSec}s` },
+        (response: any) => {
+          if (chrome.runtime.lastError || !response?.success) {
+            setMessage('Heh! Balik kerja dong!');
+          } else {
+            setMessage(response.message);
+          }
+        }
+      );
+    }
+
+    setIsLoading(false);
+    setVisible(true);
+    setLastNudgeLevel(escalationLevel);
   };
 
+  // Detect distracting site and start timer
   useEffect(() => {
-    let timeoutId: any;
-    const url = window.location.href;
-    const isDistractive = url.includes('youtube.com') || url.includes('twitter.com') || url.includes('x.com') || url.includes('instagram.com');
-    
-    if (isDistractive) {
-      // Auto-nudge after 10 seconds of being on the site
-      timeoutId = setTimeout(() => {
-        triggerReo(`User has been slacking on ${url} for too long!`);
-      }, 10000);
+    const url = window.location.hostname.replace('www.', '');
+    const defaultSites = ['youtube.com', 'twitter.com', 'x.com', 'instagram.com', 'tiktok.com', 'reddit.com'];
+    isDistractiveRef.current = defaultSites.some(s => url.includes(s));
+
+    if (isDistractiveRef.current) {
+      timerRef.current = setInterval(() => {
+        setElapsedSec(prev => prev + 1);
+      }, 1000);
     }
-    return () => clearTimeout(timeoutId);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
-  // Auto-hide message after 15 seconds
+  // Progressive nudging based on elapsed time
+  useEffect(() => {
+    if (!isDistractiveRef.current) return;
+
+    for (let i = THRESHOLDS.length - 1; i >= 0; i--) {
+      const t = THRESHOLDS[i];
+      if (elapsedSec >= t.seconds && lastNudgeLevel < t.level) {
+        triggerNudge(t.level);
+        break;
+      }
+    }
+  }, [elapsedSec]);
+
+  // Auto-hide message after 20 seconds
   useEffect(() => {
     if (message) {
-      const hideId = setTimeout(() => setMessage(''), 15000);
+      const hideId = setTimeout(() => {
+        setMessage('');
+        setVisible(false);
+      }, 20000);
       return () => clearTimeout(hideId);
     }
   }, [message]);
 
+  // Escalation indicator color
+  const dotColor = lastNudgeLevel >= 2 ? '#DC2626' : lastNudgeLevel >= 1 ? '#EA580C' : '#16A34A';
+
   return (
     <>
-      {message && <div className="reo-bubble">{message}</div>}
-      <div className="reo-blob" onClick={() => triggerReo("User poked Reo manually.")}>
-        <img 
-          src={chrome.runtime.getURL('mascot.png')} 
-          alt="Reo Mascot" 
-          style={{ opacity: isLoading ? 0.7 : 1, filter: isLoading ? 'grayscale(50%)' : 'none' }}
+      {message && (
+        <div className="reo-bubble">
+          <div className="reo-bubble-text">{message}</div>
+          {isDistractiveRef.current && (
+            <div className="reo-bubble-timer">
+              {Math.floor(elapsedSec / 60)}m {elapsedSec % 60}s on this site
+            </div>
+          )}
+        </div>
+      )}
+      <div
+        className="reo-blob"
+        onClick={() => triggerNudge(Math.min((lastNudgeLevel || 0) + 1, 2))}
+        title="Click to poke Reo"
+      >
+        {isDistractiveRef.current && (
+          <div className="reo-indicator" style={{ backgroundColor: dotColor }} />
+        )}
+        <img
+          src={chrome.runtime.getURL('mascot.png')}
+          alt="Reo Mascot"
+          width={90}
+          height={90}
+          style={{
+            opacity: isLoading ? 0.7 : 1,
+            filter: isLoading ? 'grayscale(50%)' : 'none',
+          }}
         />
       </div>
     </>
