@@ -132,7 +132,7 @@ export default function App() {
   return (
     <>
       <Toast message={toastMsg} type={toastType} />
-      <div className="max-w-5xl mx-auto px-4 py-6 md:px-8 md:py-10 pb-24">
+      <div className="max-w-5xl mx-auto px-4 py-6 md:px-8 md:py-10 pb-28">
         {/* Header */}
         <header className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
@@ -146,6 +146,11 @@ export default function App() {
               {connected ? 'Connected' : 'Offline'}
             </div>
             <span className="badge badge-blue">Beta</span>
+            <button type="button" onClick={() => setIsNew(true)}
+              className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[#F1F5F9] transition-colors"
+              style={{ color: 'var(--color-text-tertiary)' }} aria-label="Re-run onboarding" title="Setup wizard">
+              {icons.settings}
+            </button>
           </div>
         </header>
 

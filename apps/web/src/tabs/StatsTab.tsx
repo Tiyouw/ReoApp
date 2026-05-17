@@ -57,17 +57,32 @@ export function StatsTab() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
+  const loadData = (refresh = false) => {
     Promise.all([
       reoApi.getStats('7d').catch(() => null),
-      reoApi.getDailySummary().catch(() => null),
+      reoApi.getDailySummary(refresh).catch(() => null),
     ]).then(([s, d]) => {
-      setStats(s);
+      if (s) {
+        // Filter out Reo's own URLs from top sites
+        s.top_sites = (s.top_sites || []).filter((site: any) =>
+          !site.domain?.includes('run.app') && !site.domain?.includes('localhost')
+        );
+        setStats(s);
+      }
       setSummary(d);
       setLoading(false);
+      setRefreshing(false);
     });
-  }, []);
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadData(true);
+  };
 
   if (loading) {
     return <div className="flex flex-col gap-4">
@@ -131,9 +146,16 @@ export function StatsTab() {
         </div>
 
         <div className="card">
-          <h2 className="text-sm font-bold mb-3 flex items-center gap-2">
-            {icons.sparkles} AI Daily Summary
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold flex items-center gap-2">
+              {icons.sparkles} AI Daily Summary
+            </h2>
+            <button type="button" onClick={handleRefresh} disabled={refreshing}
+              className="text-xs font-medium px-2 py-1 rounded-md hover:bg-[#F1F5F9] transition-colors"
+              style={{ color: 'var(--color-text-tertiary)' }} aria-label="Refresh summary">
+              {refreshing ? icons.loader : '↻ Refresh'}
+            </button>
+          </div>
           {summary?.ai_summary ? (
             <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>{summary.ai_summary}</p>
           ) : (

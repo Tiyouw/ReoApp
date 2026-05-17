@@ -60,7 +60,7 @@ export const reoApi = {
       body: JSON.stringify({ session_id, completed }),
     }),
 
-  getDailySummary: () => api('/api/reo/summary/today'),
+  getDailySummary: (refresh = false) => api('/api/reo/summary/today' + (refresh ? '?refresh=true' : '')),
 };
 
 export { getDeviceToken };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { reoApi } from '../api';
 import { icons } from '../icons';
 
@@ -47,6 +47,8 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const dragItem = useRef<number | null>(null);
+  const dragOver = useRef<number | null>(null);
 
   // Get the active (first uncompleted) task
   const activeTask = tasks.find(t => !t.done)?.text || '';
@@ -97,6 +99,18 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
 
   const removeTask = (id: string) => {
     setTasks(prev => prev.filter(t => t.id !== id));
+  };
+
+  const handleDragEnd = () => {
+    if (dragItem.current === null || dragOver.current === null) return;
+    setTasks(prev => {
+      const updated = [...prev];
+      const [dragged] = updated.splice(dragItem.current!, 1);
+      updated.splice(dragOver.current!, 0, dragged);
+      return updated;
+    });
+    dragItem.current = null;
+    dragOver.current = null;
   };
 
   if (loading) {
@@ -179,9 +193,15 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
           ) : (
             <ul className="flex flex-col gap-1.5">
               {tasks.map((t, i) => (
-                <li key={t.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
-                  t.done ? 'opacity-50' : i === tasks.findIndex(x => !x.done) ? 'bg-[#DBEAFE]/50 ring-1 ring-[#2563EB]/20' : ''
-                }`}>
+                <li key={t.id} draggable
+                  onDragStart={() => { dragItem.current = i; }}
+                  onDragEnter={() => { dragOver.current = i; }}
+                  onDragEnd={handleDragEnd}
+                  onDragOver={e => e.preventDefault()}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing ${
+                    t.done ? 'opacity-50' : i === tasks.findIndex(x => !x.done) ? 'bg-[#DBEAFE]/50 ring-1 ring-[#2563EB]/20' : ''
+                  }`}>
+                  <span className="text-[#CBD5E1] flex-shrink-0 touch-none">{icons.grip}</span>
                   <button type="button" onClick={() => toggleTask(t.id)}
                     className={`w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
                       t.done ? 'bg-[#2563EB] border-[#2563EB] text-white' : 'border-[#CBD5E1]'

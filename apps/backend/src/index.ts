@@ -296,16 +296,23 @@ app.post('/api/reo/focus/end', requireDeviceToken, async (req, res) => {
 app.get('/api/reo/summary/today', requireDeviceToken, async (req, res) => {
   const token = (req as any).deviceToken;
   const today = new Date().toISOString().split('T')[0];
+  const forceRefresh = req.query.refresh === 'true';
 
-  // Check for existing summary
-  const { data: existing } = await supabase
-    .from('daily_summaries')
-    .select('*')
-    .eq('device_token', token)
-    .eq('summary_date', today)
-    .single();
+  // Check for existing summary (skip if refreshing)
+  if (!forceRefresh) {
+    const { data: existing } = await supabase
+      .from('daily_summaries')
+      .select('*')
+      .eq('device_token', token)
+      .eq('summary_date', today)
+      .single();
 
-  if (existing?.ai_summary) return res.json(existing);
+    if (existing?.ai_summary) {
+      // Strip markdown from cached summaries
+      existing.ai_summary = stripMarkdown(existing.ai_summary);
+      return res.json(existing);
+    }
+  }
 
   // Gather today's data
   const { data: nudges } = await supabase
@@ -334,10 +341,12 @@ app.get('/api/reo/summary/today', requireDeviceToken, async (req, res) => {
     return res.json({ summary_date: today, total_nudges: 0, total_focus_minutes: 0, ai_summary: null });
   }
 
-  // Top sites
+  // Top sites (filter out Reo's own URLs)
   const siteCounts: Record<string, number> = {};
   (nudges || []).forEach(n => {
-    siteCounts[n.site_domain] = (siteCounts[n.site_domain] || 0) + 1;
+    if (n.site_domain && !n.site_domain.includes('run.app') && !n.site_domain.includes('localhost')) {
+      siteCounts[n.site_domain] = (siteCounts[n.site_domain] || 0) + 1;
+    }
   });
   const topSites = Object.entries(siteCounts)
     .sort((a, b) => b[1] - a[1])
