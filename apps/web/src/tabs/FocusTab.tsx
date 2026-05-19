@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { reoApi } from '../api';
 import { icons } from '../icons';
 
 const DURATION_OPTIONS = [15, 25, 45, 60];
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void }) {
   const [duration, setDuration] = useState(25);
@@ -12,7 +13,10 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
   const [task, setTask] = useState('');
   const [completedToday, setCompletedToday] = useState(0);
   const [totalMinutes, setTotalMinutes] = useState(0);
+  const [isIdle, setIsIdle] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastActivityRef = useRef(Date.now());
+  const idleCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load task + today's stats
   useEffect(() => {
@@ -28,9 +32,47 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
     if (!sessionId) setSecondsLeft(duration * 60);
   }, [duration]);
 
+  // Task 7: Track user activity
+  const handleActivity = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    if (isIdle && running) {
+      setIsIdle(false);
+      showToast('Welcome back! Timer resumed.');
+    }
+  }, [isIdle, running, showToast]);
+
+  // Task 7: Set up activity listeners when session is running
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const events = ['mousemove', 'keydown', 'mousedown', 'touchstart', 'scroll'];
+    events.forEach(e => window.addEventListener(e, handleActivity, { passive: true }));
+
+    const handleVisibility = () => {
+      if (!document.hidden) handleActivity();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Check for idle every 30 seconds
+    idleCheckRef.current = setInterval(() => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      if (elapsed >= IDLE_TIMEOUT_MS && !isIdle) {
+        setIsIdle(true);
+        setRunning(false);
+        if (intervalRef.current) clearInterval(intervalRef.current);
+      }
+    }, 30000);
+
+    return () => {
+      events.forEach(e => window.removeEventListener(e, handleActivity));
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (idleCheckRef.current) clearInterval(idleCheckRef.current);
+    };
+  }, [sessionId, handleActivity, isIdle]);
+
   // Timer tick
   useEffect(() => {
-    if (running && secondsLeft > 0) {
+    if (running && secondsLeft > 0 && !isIdle) {
       intervalRef.current = setInterval(() => {
         setSecondsLeft(s => {
           if (s <= 1) {
@@ -43,7 +85,7 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
       }, 1000);
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [running]);
+  }, [running, isIdle]);
 
   const handleStart = async () => {
     try {
@@ -51,6 +93,8 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
       setSessionId(res.session_id);
       setSecondsLeft(duration * 60);
       setRunning(true);
+      setIsIdle(false);
+      lastActivityRef.current = Date.now();
       showToast(`${duration} min focus session started — lock in!`);
     } catch {
       showToast('Failed to start session', 'error');
@@ -59,6 +103,7 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
 
   const handleComplete = async () => {
     setRunning(false);
+    setIsIdle(false);
     if (sessionId) {
       try {
         await reoApi.endFocus(sessionId, true);
@@ -72,6 +117,7 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
 
   const handleStop = async () => {
     setRunning(false);
+    setIsIdle(false);
     if (intervalRef.current) clearInterval(intervalRef.current);
     if (sessionId) {
       try { await reoApi.endFocus(sessionId, false); } catch {}
@@ -86,7 +132,11 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
     if (intervalRef.current) clearInterval(intervalRef.current);
   };
 
-  const handleResume = () => setRunning(true);
+  const handleResume = () => {
+    setIsIdle(false);
+    lastActivityRef.current = Date.now();
+    setRunning(true);
+  };
 
   const min = Math.floor(secondsLeft / 60);
   const sec = secondsLeft % 60;
@@ -112,12 +162,20 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
         </div>
       )}
 
+      {/* Task 7: Idle detection banner */}
+      {isIdle && sessionId && (
+        <div className="w-full max-w-sm bg-[#FFF7ED] border border-[#FDBA74] rounded-xl px-4 py-3 text-center">
+          <p className="text-sm font-semibold text-[#EA580C]">⏸️ Paused — You seem away</p>
+          <p className="text-xs text-[#9A3412] mt-1">Timer will resume when you return.</p>
+        </div>
+      )}
+
       {/* Timer circle */}
       <div className="relative w-56 h-56">
         <svg width="224" height="224" viewBox="0 0 200 200" aria-label={`${min} minutes ${sec} seconds remaining`}>
           <circle cx="100" cy="100" r="90" fill="none" stroke="#E2E8F0" strokeWidth="6" />
           <circle cx="100" cy="100" r="90" fill="none"
-            stroke={progress > 0.8 ? '#DC2626' : progress > 0.5 ? '#EA580C' : '#2563EB'}
+            stroke={isIdle ? '#94A3B8' : progress > 0.8 ? '#DC2626' : progress > 0.5 ? '#EA580C' : '#2563EB'}
             strokeWidth="6" strokeLinecap="round"
             strokeDasharray={circumference} strokeDashoffset={strokeDashoffset}
             transform="rotate(-90 100 100)" style={{ transition: 'stroke-dashoffset 0.5s ease-out, stroke 0.5s' }} />
@@ -127,7 +185,7 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
             {String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
           </div>
           <div className="text-xs font-medium mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
-            {running ? 'Focusing…' : sessionId ? 'Paused' : `${duration} min session`}
+            {isIdle ? '⏸ Away — paused' : running ? 'Focusing…' : sessionId ? 'Paused' : `${duration} min session`}
           </div>
         </div>
       </div>

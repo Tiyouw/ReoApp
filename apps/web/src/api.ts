@@ -23,6 +23,25 @@ async function api<T = any>(path: string, options: RequestInit = {}): Promise<T>
   return res.json();
 }
 
+/* ── Task types ── */
+export interface Task {
+  id: string;
+  device_token: string;
+  title: string;
+  completed: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/* ── Chat message type ── */
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+}
+
 export const reoApi = {
   register: () => api('/api/reo/device/register', {
     method: 'POST',
@@ -39,6 +58,10 @@ export const reoApi = {
       method: 'POST',
       body: JSON.stringify({ message }),
     }),
+
+  /* Task 5: Chat history */
+  getChatHistory: (limit = 50) =>
+    api<ChatMessage[]>(`/api/reo/chat/history?limit=${limit}`),
 
   nudge: (data: { site_url: string; time_on_site_seconds: number; escalation_level: number }) =>
     api<{ message: string; escalation_level: number }>('/api/reo/nudge', {
@@ -61,6 +84,26 @@ export const reoApi = {
     }),
 
   getDailySummary: (refresh = false) => api('/api/reo/summary/today' + (refresh ? '?refresh=true' : '')),
+
+  /* Task 4: Task CRUD */
+  getTasks: () => api<Task[]>('/api/reo/tasks'),
+
+  createTask: (title: string) =>
+    api<Task>('/api/reo/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    }),
+
+  updateTask: (id: string, updates: Partial<Pick<Task, 'title' | 'completed' | 'position'>>) =>
+    api<Task>(`/api/reo/tasks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    }),
+
+  deleteTask: (id: string) =>
+    api<{ success: boolean }>(`/api/reo/tasks/${id}`, {
+      method: 'DELETE',
+    }),
 };
 
 export { getDeviceToken };

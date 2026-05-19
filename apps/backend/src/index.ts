@@ -85,7 +85,7 @@ app.post('/api/reo/state', requireDeviceToken, async (req, res) => {
   res.json({ success: true, state: data });
 });
 
-/* ── Chat ── */
+/* ── Chat (Task 5: persist messages) ── */
 app.post('/api/reo/chat', requireDeviceToken, async (req, res) => {
   const token = (req as any).deviceToken;
   const { message } = req.body;
@@ -98,16 +98,38 @@ app.post('/api/reo/chat', requireDeviceToken, async (req, res) => {
 
   const persona = settings?.persona || 'jowo';
   const task = settings?.task || 'nothing specific';
+  const userMessage = message || req.body.context || '';
+
+  // Persist user message
+  await supabase.from('chat_messages').insert({
+    device_token: token,
+    role: 'user',
+    content: userMessage,
+  });
+
+  // Fetch last 10 messages for conversation context
+  const { data: recentMessages } = await supabase
+    .from('chat_messages')
+    .select('role, content')
+    .eq('device_token', token)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  const conversationContext = (recentMessages || [])
+    .reverse()
+    .map(m => `${m.role === 'user' ? 'User' : 'Reo'}: ${m.content}`)
+    .join('\n');
 
   const prompt = `You are Reo, a productivity companion. ${getPersonaDesc(persona)}
 The user is working on: "${task}".
-User says: "${message || req.body.context || ''}"
+${conversationContext ? `Recent conversation:\n${conversationContext}\n` : ''}User says: "${userMessage}"
 Respond in 1-3 sentences matching your persona. Do NOT use any markdown formatting — no asterisks, no bold, no lists. Plain text only.`;
 
+  let aiResponse: string;
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent(prompt);
-    res.json({ message: stripMarkdown(result.response.text()) });
+    aiResponse = stripMarkdown(result.response.text());
   } catch (error: any) {
     console.error('Chat AI error:', error.message);
     const fallbacks: Record<string, string> = {
@@ -115,11 +137,36 @@ Respond in 1-3 sentences matching your persona. Do NOT use any markdown formatti
       jaksel: `Gue lagi nge-lag nih literally. But seriously, "${task}" harus beres ya bestie~`,
       professional: `I'm experiencing a temporary issue. Please continue working on "${task}" — I'll be back shortly.`,
     };
-    res.json({ message: fallbacks[persona] || fallbacks.jowo });
+    aiResponse = fallbacks[persona] || fallbacks.jowo;
   }
+
+  // Persist assistant message
+  await supabase.from('chat_messages').insert({
+    device_token: token,
+    role: 'assistant',
+    content: aiResponse,
+  });
+
+  res.json({ message: aiResponse });
 });
 
-/* ── Nudge (log + AI response) ── */
+/* ── Chat history (Task 5) ── */
+app.get('/api/reo/chat/history', requireDeviceToken, async (req, res) => {
+  const token = (req as any).deviceToken;
+  const limit = parseInt(req.query.limit as string) || 50;
+
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('id, role, content, created_at')
+    .eq('device_token', token)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+/* ── Nudge (Task 3: server-side 60s debounce) ── */
 app.post('/api/reo/nudge', requireDeviceToken, async (req, res) => {
   const token = (req as any).deviceToken;
   const { site_url, time_on_site_seconds, escalation_level } = req.body;
@@ -129,6 +176,27 @@ app.post('/api/reo/nudge', requireDeviceToken, async (req, res) => {
     domain = new URL(site_url).hostname.replace('www.', '');
   } catch {
     domain = site_url || 'unknown';
+  }
+
+  // Task 3: Server-side debounce — check if last nudge for same domain was <60s ago
+  const { data: recentNudge } = await supabase
+    .from('nudge_events')
+    .select('ai_message, created_at')
+    .eq('device_token', token)
+    .eq('site_domain', domain)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (recentNudge) {
+    const lastNudgeAge = Date.now() - new Date(recentNudge.created_at).getTime();
+    if (lastNudgeAge < 60000) {
+      return res.json({
+        message: recentNudge.ai_message,
+        escalation_level: escalation_level || 0,
+        cached: true,
+      });
+    }
   }
 
   const { data: settings } = await supabase
@@ -179,7 +247,7 @@ Give a ${level === 2 ? '2-3' : '1-2'} sentence reprimand in character. Do NOT us
   res.json({ message: aiMessage, escalation_level: level });
 });
 
-/* ── Stats ── */
+/* ── Stats (Task 6: fix streak calculation) ── */
 app.get('/api/reo/stats', requireDeviceToken, async (req, res) => {
   const token = (req as any).deviceToken;
   const range = (req.query.range as string) || '7d';
@@ -220,16 +288,36 @@ app.get('/api/reo/stats', requireDeviceToken, async (req, res) => {
   // Total focus minutes
   const totalFocusMin = (sessions || []).reduce((s, f) => s + (f.duration_minutes || 0), 0);
 
-  // Streak: consecutive days with at least 1 focus session
+  // Task 6: Fixed streak — only count days with actual focus time (>0 minutes)
+  // Fetch 30 days of sessions for streak calculation
+  const streakSince = new Date();
+  streakSince.setDate(streakSince.getDate() - 30);
+  const { data: streakSessions } = await supabase
+    .from('focus_sessions')
+    .select('duration_minutes, started_at')
+    .eq('device_token', token)
+    .eq('completed', true)
+    .gte('started_at', streakSince.toISOString());
+
+  // Build a map of focus minutes per day
+  const focusByDay: Record<string, number> = {};
+  (streakSessions || []).forEach(s => {
+    const day = s.started_at.split('T')[0];
+    focusByDay[day] = (focusByDay[day] || 0) + (s.duration_minutes || 0);
+  });
+
   let streak = 0;
-  const today = new Date();
+  const todayDate = new Date();
   for (let i = 0; i < 30; i++) {
-    const d = new Date(today);
+    const d = new Date(todayDate);
     d.setDate(d.getDate() - i);
     const key = d.toISOString().split('T')[0];
-    const hasFocus = (sessions || []).some(s => s.started_at.startsWith(key));
-    if (hasFocus || i === 0) streak++;
-    else break;
+    const dayFocus = focusByDay[key] || 0;
+    if (dayFocus > 0) {
+      streak++;
+    } else {
+      break; // Streak broken — no focus time this day
+    }
   }
 
   res.json({
@@ -239,6 +327,73 @@ app.get('/api/reo/stats', requireDeviceToken, async (req, res) => {
     nudges_by_day: nudgesByDay,
     top_sites: topSites,
   });
+});
+
+/* ── Task CRUD (Task 4: persist tasks to Supabase) ── */
+app.get('/api/reo/tasks', requireDeviceToken, async (req, res) => {
+  const token = (req as any).deviceToken;
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('device_token', token)
+    .order('position', { ascending: true });
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+app.post('/api/reo/tasks', requireDeviceToken, async (req, res) => {
+  const token = (req as any).deviceToken;
+  const { title } = req.body;
+  if (!title) return res.status(400).json({ error: 'title required' });
+
+  // Get max position
+  const { data: existing } = await supabase
+    .from('tasks')
+    .select('position')
+    .eq('device_token', token)
+    .order('position', { ascending: false })
+    .limit(1);
+
+  const nextPos = existing && existing.length > 0 ? (existing[0].position || 0) + 1 : 0;
+
+  const { data, error } = await supabase
+    .from('tasks')
+    .insert({ device_token: token, title, position: nextPos })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.patch('/api/reo/tasks/:id', requireDeviceToken, async (req, res) => {
+  const { id } = req.params;
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (req.body.title !== undefined) updates.title = req.body.title;
+  if (req.body.completed !== undefined) updates.completed = req.body.completed;
+  if (req.body.position !== undefined) updates.position = req.body.position;
+
+  const { data, error } = await supabase
+    .from('tasks')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.delete('/api/reo/tasks/:id', requireDeviceToken, async (req, res) => {
+  const { id } = req.params;
+  const { error } = await supabase
+    .from('tasks')
+    .delete()
+    .eq('id', id);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
 });
 
 /* ── Focus start ── */
@@ -292,7 +447,7 @@ app.post('/api/reo/focus/end', requireDeviceToken, async (req, res) => {
   res.json({ duration_minutes: duration, completed: completed !== false });
 });
 
-/* ── Daily summary ── */
+/* ── Daily summary (Task 8: staleness check + auto-refresh) ── */
 app.get('/api/reo/summary/today', requireDeviceToken, async (req, res) => {
   const token = (req as any).deviceToken;
   const today = new Date().toISOString().split('T')[0];
@@ -308,9 +463,35 @@ app.get('/api/reo/summary/today', requireDeviceToken, async (req, res) => {
       .single();
 
     if (existing?.ai_summary) {
-      // Strip markdown from cached summaries
-      existing.ai_summary = stripMarkdown(existing.ai_summary);
-      return res.json(existing);
+      // Task 8: Check staleness — regenerate if summary is >2 hours old AND new data exists
+      const summaryAge = Date.now() - new Date(existing.updated_at || existing.created_at || 0).getTime();
+      const twoHours = 2 * 60 * 60 * 1000;
+
+      if (summaryAge < twoHours) {
+        existing.ai_summary = stripMarkdown(existing.ai_summary);
+        return res.json(existing);
+      }
+
+      // Check if new events exist since summary was generated
+      const { count: newNudges } = await supabase
+        .from('nudge_events')
+        .select('*', { count: 'exact', head: true })
+        .eq('device_token', token)
+        .gte('created_at', existing.updated_at || existing.created_at);
+
+      const { count: newSessions } = await supabase
+        .from('focus_sessions')
+        .select('*', { count: 'exact', head: true })
+        .eq('device_token', token)
+        .eq('completed', true)
+        .gte('started_at', existing.updated_at || existing.created_at);
+
+      if ((newNudges || 0) === 0 && (newSessions || 0) === 0) {
+        // No new data — return cached summary
+        existing.ai_summary = stripMarkdown(existing.ai_summary);
+        return res.json(existing);
+      }
+      // Stale + new data exists → fall through to regenerate
     }
   }
 
@@ -377,6 +558,7 @@ Task: "${settings?.task || 'general'}". Keep it 2-4 sentences, encouraging but h
       total_focus_minutes: totalFocus,
       top_distracting_sites: topSites,
       ai_summary: aiSummary,
+      updated_at: new Date().toISOString(),
     })
     .select()
     .single();

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-
-const API_BASE = 'https://reo-backend-287020541953.asia-southeast2.run.app';
+import { API_BASE_URL } from './config';
 
 /* ── Escalation thresholds (seconds) ── */
 const THRESHOLDS = [
@@ -9,7 +8,7 @@ const THRESHOLDS = [
   { seconds: 300, level: 2 },  // savage
 ];
 
-
+const DEFAULT_BLOCKED_SITES = ['youtube.com', 'twitter.com', 'x.com', 'instagram.com', 'tiktok.com', 'reddit.com'];
 
 export function ReoBubble() {
   const [message, setMessage] = useState('');
@@ -20,6 +19,7 @@ export function ReoBubble() {
   const [deviceToken, setDeviceToken] = useState('extension-default');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isDistractiveRef = useRef(false);
+  const lastNudgeTimeRef = useRef(0); // Task 3: client-side debounce
 
   // Load or create device token from chrome.storage
   useEffect(() => {
@@ -31,7 +31,7 @@ export function ReoBubble() {
         chrome.storage.local.set({ reo_device_token: newToken });
         setDeviceToken(newToken);
         // Register the new token with the backend
-        fetch(`${API_BASE}/api/reo/device/register`, {
+        fetch(`${API_BASE_URL}/api/reo/device/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ device_token: newToken }),
@@ -42,13 +42,18 @@ export function ReoBubble() {
 
   const triggerNudge = async (escalationLevel: number) => {
     if (isLoading) return;
+
+    // Task 3: Client-side 60s debounce
+    if (Date.now() - lastNudgeTimeRef.current < 60000) return;
+
     setIsLoading(true);
+    lastNudgeTimeRef.current = Date.now();
 
     const siteUrl = window.location.href;
 
     try {
-      // Try new nudge API first
-      const res = await fetch(`${API_BASE}/api/reo/nudge`, {
+      // Try nudge API
+      const res = await fetch(`${API_BASE_URL}/api/reo/nudge`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -61,6 +66,7 @@ export function ReoBubble() {
         }),
       });
       const data = await res.json();
+      // If server returned cached response, still show it
       setMessage(data.message || 'Hey! Get back to work!');
     } catch {
       // Fallback to old chat API via background script
@@ -81,7 +87,7 @@ export function ReoBubble() {
     setLastNudgeLevel(escalationLevel);
   };
 
-  // Detect distracting site and start timer
+  // Task 2: Detect distracting site using synced blocked_sites from chrome.storage
   useEffect(() => {
     const url = window.location.hostname.replace('www.', '');
 
@@ -90,14 +96,22 @@ export function ReoBubble() {
       'notion.so', 'figma.com', 'stackoverflow.com', 'gitlab.com', 'supabase.com'];
     const isWhitelisted = whitelist.some(s => url.includes(s));
 
-    const defaultSites = ['youtube.com', 'twitter.com', 'x.com', 'instagram.com', 'tiktok.com', 'reddit.com'];
-    isDistractiveRef.current = !isWhitelisted && defaultSites.some(s => url.includes(s));
+    if (isWhitelisted) return;
 
-    if (isDistractiveRef.current) {
-      timerRef.current = setInterval(() => {
-        setElapsedSec(prev => prev + 1);
-      }, 1000);
-    }
+    // Read blocked sites from chrome.storage (synced from Supabase), fallback to defaults
+    chrome.storage.local.get('reo_blocked_sites', (result) => {
+      const blockedSites: string[] = (result.reo_blocked_sites && Array.isArray(result.reo_blocked_sites))
+        ? result.reo_blocked_sites
+        : DEFAULT_BLOCKED_SITES;
+
+      isDistractiveRef.current = blockedSites.some(s => url.includes(s));
+
+      if (isDistractiveRef.current) {
+        timerRef.current = setInterval(() => {
+          setElapsedSec(prev => prev + 1);
+        }, 1000);
+      }
+    });
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { reoApi } from '../api';
+import { reoApi, Task as ApiTask } from '../api';
 import { icons } from '../icons';
 
 const PERSONAS = [
@@ -30,19 +30,9 @@ function getGreeting(): string {
   return 'Night owl mode activated';
 }
 
-function loadTasks(): Task[] {
-  try {
-    return JSON.parse(localStorage.getItem('reo_tasks') || '[]');
-  } catch { return []; }
-}
-
-function saveTasks(tasks: Task[]) {
-  localStorage.setItem('reo_tasks', JSON.stringify(tasks));
-}
-
 export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void }) {
   const [persona, setPersona] = useState('jowo');
-  const [tasks, setTasks] = useState<Task[]>(loadTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [newTask, setNewTask] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -54,23 +44,38 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
   const activeTask = tasks.find(t => !t.done)?.text || '';
   const completedCount = tasks.filter(t => t.done).length;
 
+  // Task 4: Load tasks from Supabase on mount
   useEffect(() => {
-    reoApi.getState().then(data => {
-      setPersona(data.persona || 'jowo');
-      // If no local tasks but backend has one, seed it
-      if (tasks.length === 0 && data.task) {
-        const seeded = [{ id: crypto.randomUUID(), text: data.task, done: false }];
-        setTasks(seeded);
-        saveTasks(seeded);
+    Promise.all([
+      reoApi.getState().catch(() => null),
+      reoApi.getTasks().catch(() => null),
+    ]).then(([state, apiTasks]) => {
+      if (state) setPersona(state.persona || 'jowo');
+
+      if (apiTasks && apiTasks.length > 0) {
+        // Map API tasks to local format
+        setTasks(apiTasks.map(t => ({
+          id: t.id,
+          text: t.title,
+          done: t.completed,
+        })));
+      } else if (state?.task) {
+        // Seed from backend state if no tasks exist yet
+        reoApi.createTask(state.task).then(created => {
+          setTasks([{ id: created.id, text: created.title, done: false }]);
+        }).catch(() => {});
       }
       setLoading(false);
-    }).catch(() => setLoading(false));
+    });
   }, []);
 
-  // Sync active task to backend whenever tasks change
+  // Sync active task to backend settings whenever tasks change
   useEffect(() => {
-    saveTasks(tasks);
-  }, [tasks]);
+    if (!loading && tasks.length > 0) {
+      const active = tasks.find(t => !t.done)?.text || '';
+      reoApi.saveState({ task: active }).catch(() => {});
+    }
+  }, [tasks, loading]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -86,27 +91,70 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
     }
   };
 
-  const addTask = () => {
+  // Task 4: Create task via API
+  const addTask = async () => {
     const text = newTask.trim();
     if (!text) return;
-    setTasks(prev => [...prev, { id: crypto.randomUUID(), text, done: false }]);
     setNewTask('');
+
+    // Optimistic UI
+    const tempId = crypto.randomUUID();
+    setTasks(prev => [...prev, { id: tempId, text, done: false }]);
+
+    try {
+      const created = await reoApi.createTask(text);
+      // Replace temp ID with real one
+      setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: created.id } : t));
+    } catch {
+      showToast('Failed to add task', 'error');
+      setTasks(prev => prev.filter(t => t.id !== tempId));
+    }
   };
 
-  const toggleTask = (id: string) => {
+  // Task 4: Toggle task via API
+  const toggleTask = async (id: string) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+
+    // Optimistic UI
     setTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+
+    try {
+      await reoApi.updateTask(id, { completed: !task.done });
+    } catch {
+      // Revert on failure
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, done: task.done } : t));
+    }
   };
 
-  const removeTask = (id: string) => {
+  // Task 4: Delete task via API
+  const removeTask = async (id: string) => {
+    const removedTask = tasks.find(t => t.id === id);
     setTasks(prev => prev.filter(t => t.id !== id));
+
+    try {
+      await reoApi.deleteTask(id);
+    } catch {
+      // Revert on failure
+      if (removedTask) setTasks(prev => [...prev, removedTask]);
+    }
   };
 
-  const handleDragEnd = () => {
+  const handleDragEnd = async () => {
     if (dragItem.current === null || dragOver.current === null) return;
+    const fromIdx = dragItem.current;
+    const toIdx = dragOver.current;
+
     setTasks(prev => {
       const updated = [...prev];
-      const [dragged] = updated.splice(dragItem.current!, 1);
-      updated.splice(dragOver.current!, 0, dragged);
+      const [dragged] = updated.splice(fromIdx, 1);
+      updated.splice(toIdx, 0, dragged);
+
+      // Update positions on server
+      updated.forEach((t, i) => {
+        reoApi.updateTask(t.id, { position: i }).catch(() => {});
+      });
+
       return updated;
     });
     dragItem.current = null;
