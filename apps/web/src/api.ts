@@ -18,6 +18,12 @@ async function api<T = any>(path: string, options: RequestInit = {}): Promise<T>
     ...((options.headers as Record<string, string>) || {}),
   };
 
+  // Add JWT if available
+  const jwt = localStorage.getItem('reo_jwt');
+  if (jwt) {
+    headers['Authorization'] = `Bearer ${jwt}`;
+  }
+
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
   return res.json();
@@ -59,7 +65,6 @@ export const reoApi = {
       body: JSON.stringify({ message }),
     }),
 
-  /* Task 5: Chat history */
   getChatHistory: (limit = 50) =>
     api<ChatMessage[]>(`/api/reo/chat/history?limit=${limit}`),
 
@@ -85,7 +90,7 @@ export const reoApi = {
 
   getDailySummary: (refresh = false) => api('/api/reo/summary/today' + (refresh ? '?refresh=true' : '')),
 
-  /* Task 4: Task CRUD */
+  /* Task CRUD */
   getTasks: () => api<Task[]>('/api/reo/tasks'),
 
   createTask: (title: string) =>
@@ -102,6 +107,59 @@ export const reoApi = {
 
   deleteTask: (id: string) =>
     api<{ success: boolean }>(`/api/reo/tasks/${id}`, {
+      method: 'DELETE',
+    }),
+
+  /* ── Phase 2: Auth ── */
+  authLogin: (email: string) =>
+    api<{ success: boolean }>('/api/reo/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  authLinkDevice: () =>
+    api<{ linked: number }>('/api/reo/auth/link-device', {
+      method: 'POST',
+      body: JSON.stringify({ device_token: getDeviceToken() }),
+    }),
+
+  authMe: () => api<{ id: string; email: string } | null>('/api/reo/auth/me'),
+
+  /* ── Phase 2: Push ── */
+  getVapidKey: () =>
+    api<string>('/api/reo/push/vapid-key').catch(() => null),
+
+  pushSubscribe: (subscription: any) =>
+    api('/api/reo/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify({ subscription }),
+    }),
+
+  pushUnsubscribe: (endpoint: string) =>
+    api('/api/reo/push/unsubscribe', {
+      method: 'DELETE',
+      body: JSON.stringify({ endpoint }),
+    }),
+
+  pushTest: () =>
+    api('/api/reo/push/test', { method: 'POST' }),
+
+  /* ── Phase 2: Export ── */
+  exportData: async (format: 'json' | 'csv' = 'json') => {
+    const headers: Record<string, string> = {
+      'x-device-token': getDeviceToken(),
+    };
+    const jwt = localStorage.getItem('reo_jwt');
+    if (jwt) headers['Authorization'] = `Bearer ${jwt}`;
+
+    const res = await fetch(`${API_BASE}/api/reo/export?format=${format}`, { headers });
+    if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+    return res.blob();
+  },
+
+  /* ── Phase 2: Delete Account Data ── */
+  deleteAllData: () =>
+    api<{ success: boolean }>('/api/reo/account/data', {
       method: 'DELETE',
     }),
 };

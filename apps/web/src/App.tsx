@@ -5,14 +5,16 @@ import { HomeTab } from './tabs/HomeTab';
 import { StatsTab } from './tabs/StatsTab';
 import { FocusTab } from './tabs/FocusTab';
 import { ChatTab } from './tabs/ChatTab';
+import { SettingsTab } from './tabs/SettingsTab';
 
-type Tab = 'home' | 'stats' | 'focus' | 'chat';
+type Tab = 'home' | 'stats' | 'focus' | 'chat' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'home', label: 'Home', icon: icons.home },
   { id: 'stats', label: 'Stats', icon: icons.barChart },
   { id: 'focus', label: 'Focus', icon: icons.clock },
   { id: 'chat', label: 'Chat', icon: icons.messageCircle },
+  { id: 'settings', label: 'Settings', icon: icons.settings },
 ];
 
 /* ── Toast ── */
@@ -116,6 +118,11 @@ export default function App() {
   useEffect(() => {
     if (!isNew) {
       reoApi.getState().then(() => setConnected(true)).catch(() => setConnected(false));
+
+      // Register service worker for push notifications
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }
     }
   }, [isNew]);
 
@@ -145,12 +152,7 @@ export default function App() {
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${connected ? 'bg-[#16A34A] status-pulse' : 'bg-[#94A3B8]'}`} />
               {connected ? 'Connected' : 'Offline'}
             </div>
-            <span className="badge badge-blue">Beta</span>
-            <button type="button" onClick={() => setIsNew(true)}
-              className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[#F1F5F9] transition-colors"
-              style={{ color: 'var(--color-text-tertiary)' }} aria-label="Re-run onboarding" title="Setup wizard">
-              {icons.settings}
-            </button>
+            <span className="badge badge-blue">v2.1</span>
           </div>
         </header>
 
@@ -159,6 +161,7 @@ export default function App() {
         {tab === 'stats' && <StatsTab />}
         {tab === 'focus' && <FocusTab showToast={showToast} />}
         {tab === 'chat' && <ChatTab />}
+        {tab === 'settings' && <SettingsTab showToast={showToast} />}
       </div>
 
       {/* Bottom Tab Bar */}

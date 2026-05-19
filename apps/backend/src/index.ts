@@ -3,7 +3,9 @@ import cors from 'cors';
 import path from 'path';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { supabase } from './supabase';
-import { requireDeviceToken } from './middleware';
+import { requireDeviceToken, authenticateUser } from './middleware';
+import { exportUserData } from './export';
+import { saveSubscription, removeSubscription, sendPushToDevice, getVapidPublicKey } from './push';
 
 const app = express();
 app.use(cors());
@@ -564,6 +566,121 @@ Task: "${settings?.task || 'general'}". Keep it 2-4 sentences, encouraging but h
     .single();
 
   res.json(summary);
+});
+
+/* ── Auth: magic link login ── */
+app.post('/api/reo/auth/login', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'email required' });
+
+  const { error } = await supabase.auth.signInWithOtp({ email });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, message: 'Check your email for a magic link!' });
+});
+
+/* ── Auth: link device to user ── */
+app.post('/api/reo/auth/link-device', authenticateUser, async (req, res) => {
+  const userId = (req as any).userId;
+  const deviceToken = req.body.device_token || (req as any).deviceToken;
+
+  if (!userId) return res.status(401).json({ error: 'JWT auth required to link device' });
+  if (!deviceToken) return res.status(400).json({ error: 'device_token required' });
+
+  const tables = ['settings', 'nudge_events', 'focus_sessions', 'daily_summaries', 'tasks', 'chat_messages'];
+  let linked = 0;
+
+  for (const table of tables) {
+    const { count } = await supabase
+      .from(table)
+      .update({ user_id: userId })
+      .eq('device_token', deviceToken)
+      .select('*', { count: 'exact', head: true });
+    linked += count || 0;
+  }
+
+  res.json({ linked, message: `Linked ${linked} records to your account` });
+});
+
+/* ── Auth: get current user ── */
+app.get('/api/reo/auth/me', authenticateUser, async (req, res) => {
+  const userId = (req as any).userId;
+  const email = (req as any).userEmail;
+
+  if (userId) {
+    return res.json({ id: userId, email });
+  }
+  res.json(null);
+});
+
+/* ── Push: get VAPID key ── */
+app.get('/api/reo/push/vapid-key', (req, res) => {
+  const key = getVapidPublicKey();
+  if (!key) return res.status(404).json({ error: 'Push not configured' });
+  res.json(key);
+});
+
+/* ── Push: subscribe ── */
+app.post('/api/reo/push/subscribe', requireDeviceToken, async (req, res) => {
+  const token = (req as any).deviceToken;
+  const { subscription } = req.body;
+  if (!subscription) return res.status(400).json({ error: 'subscription required' });
+
+  const saved = await saveSubscription(token, subscription);
+  res.json({ success: saved });
+});
+
+/* ── Push: unsubscribe ── */
+app.delete('/api/reo/push/unsubscribe', requireDeviceToken, async (req, res) => {
+  const { endpoint } = req.body;
+  if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
+
+  await removeSubscription(endpoint);
+  res.json({ success: true });
+});
+
+/* ── Push: test ── */
+app.post('/api/reo/push/test', requireDeviceToken, async (req, res) => {
+  const token = (req as any).deviceToken;
+  await sendPushToDevice(token, {
+    title: 'Reo Test Notification',
+    body: 'Push notifications are working! 🎉',
+  });
+  res.json({ success: true });
+});
+
+/* ── Export data ── */
+app.get('/api/reo/export', requireDeviceToken, async (req, res) => {
+  const token = (req as any).deviceToken;
+  const userId = (req as any).userId;
+  const format = (req.query.format as string) === 'csv' ? 'csv' : 'json';
+  const today = new Date().toISOString().split('T')[0];
+
+  try {
+    const result = await exportUserData(
+      { userId, deviceToken: token },
+      format
+    );
+
+    res.setHeader('Content-Type', result.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="reo-export-${today}.${format}"`);
+    res.send(result.body);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ── Delete all account data ── */
+app.delete('/api/reo/account/data', requireDeviceToken, async (req, res) => {
+  const token = (req as any).deviceToken;
+
+  // Delete in order (foreign key safety)
+  const tables = ['chat_messages', 'tasks', 'daily_summaries', 'nudge_events', 'focus_sessions', 'push_subscriptions', 'settings'];
+
+  for (const table of tables) {
+    await supabase.from(table).delete().eq('device_token', token);
+  }
+
+  res.json({ success: true, message: 'All data deleted' });
 });
 
 /* ── Serve web frontend (production) ── */

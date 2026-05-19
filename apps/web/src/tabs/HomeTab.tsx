@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { reoApi, Task as ApiTask } from '../api';
 import { icons } from '../icons';
+import { MascotMood as MascotMoodComponent, getMood, type MascotMood } from '../components/MascotMood';
 
 const PERSONAS = [
   { value: 'jowo', label: 'Savage Jowo', desc: 'Galak & lucu — Javanese tough love', color: 'bg-[#FEF2F2] text-[#DC2626]' },
@@ -37,6 +38,7 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [mood, setMood] = useState<MascotMood>('happy');
   const dragItem = useRef<number | null>(null);
   const dragOver = useRef<number | null>(null);
 
@@ -49,7 +51,8 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
     Promise.all([
       reoApi.getState().catch(() => null),
       reoApi.getTasks().catch(() => null),
-    ]).then(([state, apiTasks]) => {
+      reoApi.getStats('1d').catch(() => null),
+    ]).then(([state, apiTasks, todayStats]) => {
       if (state) setPersona(state.persona || 'jowo');
 
       if (apiTasks && apiTasks.length > 0) {
@@ -65,6 +68,16 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
           setTasks([{ id: created.id, text: created.title, done: false }]);
         }).catch(() => {});
       }
+
+      // Compute mascot mood from today's stats
+      if (todayStats) {
+        setMood(getMood({
+          streak: todayStats.streak_days || 0,
+          nudgesToday: todayStats.total_nudges || 0,
+          focusToday: todayStats.total_focus_minutes || 0,
+        }));
+      }
+
       setLoading(false);
     });
   }, []);
@@ -188,8 +201,8 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
             </p>
           )}
         </div>
-        <div className="flex-shrink-0 mascot-idle">
-          <img src="/mascot.png" alt="Reo mascot" width={144} height={144} className="object-contain" fetchPriority="high" />
+        <div className="flex-shrink-0">
+          <MascotMoodComponent mood={mood} size={144} />
         </div>
       </div>
 
