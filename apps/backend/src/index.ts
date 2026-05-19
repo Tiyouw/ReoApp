@@ -6,6 +6,8 @@ import { supabase } from './supabase';
 import { requireDeviceToken, authenticateUser } from './middleware';
 import { exportUserData } from './export';
 import { saveSubscription, removeSubscription, sendPushToDevice, getVapidPublicKey } from './push';
+import { classifyPage, invalidateClassification } from './classify';
+import { getTodayScore } from './score';
 
 const app = express();
 app.use(cors());
@@ -13,11 +15,17 @@ app.use(express.json());
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-/* ── Persona helpers ── */
+/* ── Persona helpers (Phase 3: expanded to 6) ── */
 function getPersonaDesc(persona: string): string {
-  if (persona === 'jowo') return 'You speak in funny, angry Javanese Indonesian slang. Be dramatic and guilt-trip with humor.';
-  if (persona === 'jaksel') return 'You speak in sassy South Jakarta slang (Indonesian-English mix, lots of "literally", "which is", "I mean").';
-  return 'You speak politely, professionally, and straight to the point.';
+  const personas: Record<string, string> = {
+    jowo: 'You speak in funny, angry Javanese Indonesian slang. Be dramatic and guilt-trip with humor.',
+    jaksel: 'You speak in sassy South Jakarta slang (Indonesian-English mix, lots of "literally", "which is", "I mean").',
+    professional: 'You speak politely, professionally, and straight to the point in English.',
+    sundanese: 'You speak in warm, friendly Sundanese-Indonesian mix. Tease the user with humor and brotherly/sisterly affection. Use words like "euy", "atuh", "mah".',
+    batak: 'You speak in direct, loud Batak-Indonesian style. Be blunt, no-nonsense, and slightly intimidating but caring. Use "Lae", "Bah!", and Batak expressions.',
+    corporate: 'You speak ONLY in corporate buzzwords and jargon. Use terms like "synergy", "circle back", "North Star metric", "OKR", "bandwidth", "action items". Be annoyingly corporate.',
+  };
+  return personas[persona] || personas.professional;
 }
 
 /* ── Strip markdown from AI responses ── */
@@ -681,6 +689,46 @@ app.delete('/api/reo/account/data', requireDeviceToken, async (req, res) => {
   }
 
   res.json({ success: true, message: 'All data deleted' });
+});
+
+/* ── Classify page (Task 1: smart whitelisting) ── */
+app.post('/api/reo/classify', requireDeviceToken, async (req, res) => {
+  const { url, page_title, user_task } = req.body;
+  if (!url) return res.status(400).json({ error: 'url required' });
+
+  const token = (req as any).deviceToken;
+  const task = user_task || (await supabase
+    .from('settings')
+    .select('task')
+    .eq('device_token', token)
+    .single()).data?.task || '';
+
+  try {
+    const result = await classifyPage({ url, page_title: page_title || '', user_task: task });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ── Classify feedback ("This is wrong" button) ── */
+app.post('/api/reo/classify/feedback', requireDeviceToken, async (req, res) => {
+  const { domain, user_task } = req.body;
+  if (!domain) return res.status(400).json({ error: 'domain required' });
+
+  await invalidateClassification(domain, user_task || '');
+  res.json({ success: true, message: 'Classification invalidated' });
+});
+
+/* ── Productivity score (Task 5) ── */
+app.get('/api/reo/score/today', requireDeviceToken, async (req, res) => {
+  const token = (req as any).deviceToken;
+  try {
+    const score = await getTodayScore(token);
+    res.json(score);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ── Serve web frontend (production) ── */

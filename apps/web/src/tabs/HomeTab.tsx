@@ -7,11 +7,14 @@ const PERSONAS = [
   { value: 'jowo', label: 'Savage Jowo', desc: 'Galak & lucu — Javanese tough love', color: 'bg-[#FEF2F2] text-[#DC2626]' },
   { value: 'jaksel', label: 'Anak Jaksel', desc: 'Sok asik — South Jakarta slang vibes', color: 'bg-[#FFF7ED] text-[#EA580C]' },
   { value: 'professional', label: 'Professional', desc: 'Kaku — polite & straight to the point', color: 'bg-[#DBEAFE] text-[#2563EB]' },
+  { value: 'sundanese', label: 'Urang Sunda', desc: 'Warm & teasing — brotherly Sundanese humor', color: 'bg-[#F0FDF4] text-[#16A34A]', isNew: true },
+  { value: 'batak', label: 'Lae Batak', desc: 'Direct & loud — Batak uncle tells it straight', color: 'bg-[#FDF4FF] text-[#9333EA]', isNew: true },
+  { value: 'corporate', label: 'Corporate Buzz', desc: 'Let\'s circle back — annoying corporate jargon', color: 'bg-[#F1F5F9] text-[#475569]', isNew: true },
 ];
 
 const FEATURES = [
   { icon: icons.shield, title: 'Anti-Doomscroll', desc: 'Auto-detects YouTube, Twitter & Instagram — nudges you back to work.', bg: 'bg-[#DBEAFE]', fg: 'text-[#2563EB]' },
-  { icon: icons.masks, title: '3 Personality Modes', desc: 'From savage Javanese scolding to professional reminders.', bg: 'bg-[#FFF7ED]', fg: 'text-[#EA580C]' },
+  { icon: icons.masks, title: '6 Personality Modes', desc: 'From Javanese scolding to corporate buzzwords.', bg: 'bg-[#FFF7ED]', fg: 'text-[#EA580C]' },
   { icon: icons.sparkles, title: 'Gemini AI Powered', desc: 'Dynamic, context-aware messages that actually hit different.', bg: 'bg-[#F0FDF4]', fg: 'text-[#16A34A]' },
   { icon: icons.puzzle, title: 'Chrome Extension', desc: 'Lives in your browser — intervenes right when you need it.', bg: 'bg-[#FDF4FF]', fg: 'text-[#9333EA]' },
 ];
@@ -289,12 +292,15 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
             <div className="step-num">2</div>
             <h2 className="text-lg font-bold tracking-tight">Pick a Vibe</h2>
           </div>
-          <fieldset className="flex flex-col gap-2 flex-1">
+          <fieldset className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
             <legend className="sr-only">Choose Reo's personality</legend>
             {PERSONAS.map(p => (
               <button key={p.value} type="button" role="radio" aria-checked={persona === p.value}
                 onClick={() => setPersona(p.value)} className="persona-option" data-selected={persona === p.value}>
-                <span className={`badge ${p.color} text-[0.6875rem]`}>{p.label.split(' ')[0]}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`badge ${p.color} text-[0.6875rem]`}>{p.label.split(' ')[0]}</span>
+                  {(p as any).isNew && <span className="badge bg-[#D1FAE5] text-[#059669] text-[0.5625rem]">NEW</span>}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold">{p.label}</div>
                   <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{p.desc}</div>

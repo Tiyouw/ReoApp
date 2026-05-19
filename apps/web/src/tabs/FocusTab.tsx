@@ -2,12 +2,37 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { reoApi } from '../api';
 import { icons } from '../icons';
 
-const DURATION_OPTIONS = [15, 25, 45, 60];
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+/* ── Pomodoro Presets ── */
+interface PomodoroPreset {
+  name: string;
+  workMinutes: number;
+  breakMinutes: number;
+  longBreakMinutes: number;
+  roundsBeforeLongBreak: number;
+}
+
+const PRESETS: PomodoroPreset[] = [
+  { name: 'Classic', workMinutes: 25, breakMinutes: 5, longBreakMinutes: 15, roundsBeforeLongBreak: 4 },
+  { name: 'Deep Work', workMinutes: 50, breakMinutes: 10, longBreakMinutes: 30, roundsBeforeLongBreak: 2 },
+  { name: 'Sprint', workMinutes: 15, breakMinutes: 3, longBreakMinutes: 10, roundsBeforeLongBreak: 4 },
+];
+
+type Phase = 'idle' | 'work' | 'break' | 'longBreak';
+
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+
+const PHASE_COLORS: Record<Phase, string> = {
+  idle: '#94A3B8',
+  work: '#2563EB',
+  break: '#16A34A',
+  longBreak: '#9333EA',
+};
 
 export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void }) {
-  const [duration, setDuration] = useState(25);
-  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
+  const [preset, setPreset] = useState(PRESETS[0]);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [round, setRound] = useState(1);
+  const [secondsLeft, setSecondsLeft] = useState(PRESETS[0].workMinutes * 60);
   const [running, setRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [task, setTask] = useState('');
@@ -27,12 +52,12 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
     }).catch(() => {});
   }, []);
 
-  // Update seconds when duration changes (only when not running)
+  // Update timer when preset changes (only when idle)
   useEffect(() => {
-    if (!sessionId) setSecondsLeft(duration * 60);
-  }, [duration]);
+    if (phase === 'idle') setSecondsLeft(preset.workMinutes * 60);
+  }, [preset, phase]);
 
-  // Task 7: Track user activity
+  // Idle detection
   const handleActivity = useCallback(() => {
     lastActivityRef.current = Date.now();
     if (isIdle && running) {
@@ -41,22 +66,15 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
     }
   }, [isIdle, running, showToast]);
 
-  // Task 7: Set up activity listeners when session is running
   useEffect(() => {
-    if (!sessionId) return;
-
+    if (phase === 'idle') return;
     const events = ['mousemove', 'keydown', 'mousedown', 'touchstart', 'scroll'];
     events.forEach(e => window.addEventListener(e, handleActivity, { passive: true }));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) handleActivity(); });
 
-    const handleVisibility = () => {
-      if (!document.hidden) handleActivity();
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    // Check for idle every 30 seconds
     idleCheckRef.current = setInterval(() => {
-      const elapsed = Date.now() - lastActivityRef.current;
-      if (elapsed >= IDLE_TIMEOUT_MS && !isIdle) {
+      if (phase !== 'work') return; // Only idle-check during work
+      if (Date.now() - lastActivityRef.current >= IDLE_TIMEOUT_MS && !isIdle) {
         setIsIdle(true);
         setRunning(false);
         if (intervalRef.current) clearInterval(intervalRef.current);
@@ -65,10 +83,9 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
 
     return () => {
       events.forEach(e => window.removeEventListener(e, handleActivity));
-      document.removeEventListener('visibilitychange', handleVisibility);
       if (idleCheckRef.current) clearInterval(idleCheckRef.current);
     };
-  }, [sessionId, handleActivity, isIdle]);
+  }, [phase, handleActivity, isIdle]);
 
   // Timer tick
   useEffect(() => {
@@ -77,7 +94,7 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
         setSecondsLeft(s => {
           if (s <= 1) {
             clearInterval(intervalRef.current!);
-            handleComplete();
+            handlePhaseComplete();
             return 0;
           }
           return s - 1;
@@ -87,32 +104,62 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [running, isIdle]);
 
+  // Phase transition
+  const handlePhaseComplete = async () => {
+    setRunning(false);
+
+    if (phase === 'work') {
+      // End work phase — record to backend
+      if (sessionId) {
+        try {
+          await reoApi.endFocus(sessionId, true);
+          setTotalMinutes(m => m + preset.workMinutes);
+          setCompletedToday(c => c + 1);
+        } catch {}
+      }
+      setSessionId(null);
+
+      // Determine next phase
+      if (round >= preset.roundsBeforeLongBreak) {
+        setPhase('longBreak');
+        setSecondsLeft(preset.longBreakMinutes * 60);
+        showToast(`🎉 Round ${round} done! Enjoy a long break.`);
+      } else {
+        setPhase('break');
+        setSecondsLeft(preset.breakMinutes * 60);
+        showToast(`✅ Round ${round}/${preset.roundsBeforeLongBreak} done! Take a break.`);
+      }
+      // Auto-start break
+      setTimeout(() => setRunning(true), 500);
+    } else {
+      // Break/long break complete
+      if (phase === 'longBreak') {
+        setRound(1);
+        showToast('🔄 Cycle complete! Ready for a new set?');
+        setPhase('idle');
+        setSecondsLeft(preset.workMinutes * 60);
+      } else {
+        setRound(r => r + 1);
+        showToast(`Break's over! Ready for round ${round + 1}?`);
+        setPhase('idle');
+        setSecondsLeft(preset.workMinutes * 60);
+      }
+    }
+  };
+
   const handleStart = async () => {
     try {
       const res = await reoApi.startFocus(task);
       setSessionId(res.session_id);
-      setSecondsLeft(duration * 60);
+      setPhase('work');
+      setSecondsLeft(preset.workMinutes * 60);
       setRunning(true);
       setIsIdle(false);
       lastActivityRef.current = Date.now();
-      showToast(`${duration} min focus session started — lock in!`);
+      showToast(`Work phase ${round}/${preset.roundsBeforeLongBreak} — lock in!`);
     } catch {
       showToast('Failed to start session', 'error');
     }
-  };
-
-  const handleComplete = async () => {
-    setRunning(false);
-    setIsIdle(false);
-    if (sessionId) {
-      try {
-        await reoApi.endFocus(sessionId, true);
-        setCompletedToday(c => c + 1);
-        setTotalMinutes(m => m + duration);
-        showToast(`Session complete! ${duration} min focused.`);
-      } catch {}
-    }
-    setSessionId(null);
   };
 
   const handleStop = async () => {
@@ -123,7 +170,9 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
       try { await reoApi.endFocus(sessionId, false); } catch {}
     }
     setSessionId(null);
-    setSecondsLeft(duration * 60);
+    setPhase('idle');
+    setRound(1);
+    setSecondsLeft(preset.workMinutes * 60);
     showToast('Session cancelled', 'error');
   };
 
@@ -138,31 +187,65 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
     setRunning(true);
   };
 
+  const handleSkip = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    setRunning(false);
+    handlePhaseComplete();
+  };
+
+  const currentDuration = phase === 'work' ? preset.workMinutes
+    : phase === 'break' ? preset.breakMinutes
+    : phase === 'longBreak' ? preset.longBreakMinutes
+    : preset.workMinutes;
+
   const min = Math.floor(secondsLeft / 60);
   const sec = secondsLeft % 60;
-  const progress = 1 - secondsLeft / (duration * 60);
+  const progress = 1 - secondsLeft / (currentDuration * 60);
   const circumference = 2 * Math.PI * 90;
   const strokeDashoffset = circumference * (1 - progress);
+  const activeColor = isIdle ? '#94A3B8' : PHASE_COLORS[phase];
+
+  const phaseLabel = phase === 'work' ? `Work ${round}/${preset.roundsBeforeLongBreak}`
+    : phase === 'break' ? 'Break'
+    : phase === 'longBreak' ? 'Long Break'
+    : `${preset.name} Pomodoro`;
 
   return (
     <div className="flex flex-col items-center gap-6 py-4">
-      {/* Duration selector */}
-      {!sessionId && (
+      {/* Preset selector */}
+      {phase === 'idle' && (
         <div className="flex gap-2">
-          {DURATION_OPTIONS.map(d => (
-            <button key={d} type="button" onClick={() => setDuration(d)}
+          {PRESETS.map(p => (
+            <button key={p.name} type="button" onClick={() => setPreset(p)}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                d === duration
+                p.name === preset.name
                   ? 'bg-[#2563EB] text-white shadow-sm'
                   : 'bg-[#F1F5F9] hover:bg-[#E2E8F0]'
-              }`} style={d !== duration ? { color: 'var(--color-text-secondary)' } : {}}>
-              {d}m
+              }`} style={p.name !== preset.name ? { color: 'var(--color-text-secondary)' } : {}}>
+              {p.name}
             </button>
           ))}
         </div>
       )}
 
-      {/* Task 7: Idle detection banner */}
+      {/* Phase indicator */}
+      {phase !== 'idle' && (
+        <div className="flex items-center gap-2">
+          {Array.from({ length: preset.roundsBeforeLongBreak }).map((_, i) => (
+            <div key={i} className={`w-3 h-3 rounded-full transition-colors duration-300 ${
+              i < round - (phase === 'work' ? 1 : 0) ? 'bg-[#2563EB]'
+              : i === round - 1 && phase === 'work' ? 'bg-[#2563EB] ring-2 ring-[#2563EB]/30'
+              : 'bg-[#E2E8F0]'
+            }`} />
+          ))}
+          <span className="text-xs font-semibold ml-2 px-2 py-0.5 rounded-full"
+            style={{ backgroundColor: `${activeColor}20`, color: activeColor }}>
+            {phaseLabel}
+          </span>
+        </div>
+      )}
+
+      {/* Idle banner */}
       {isIdle && sessionId && (
         <div className="w-full max-w-sm bg-[#FFF7ED] border border-[#FDBA74] rounded-xl px-4 py-3 text-center">
           <p className="text-sm font-semibold text-[#EA580C]">⏸️ Paused — You seem away</p>
@@ -175,17 +258,17 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
         <svg width="224" height="224" viewBox="0 0 200 200" aria-label={`${min} minutes ${sec} seconds remaining`}>
           <circle cx="100" cy="100" r="90" fill="none" stroke="#E2E8F0" strokeWidth="6" />
           <circle cx="100" cy="100" r="90" fill="none"
-            stroke={isIdle ? '#94A3B8' : progress > 0.8 ? '#DC2626' : progress > 0.5 ? '#EA580C' : '#2563EB'}
-            strokeWidth="6" strokeLinecap="round"
+            stroke={activeColor} strokeWidth="6" strokeLinecap="round"
             strokeDasharray={circumference} strokeDashoffset={strokeDashoffset}
-            transform="rotate(-90 100 100)" style={{ transition: 'stroke-dashoffset 0.5s ease-out, stroke 0.5s' }} />
+            transform="rotate(-90 100 100)"
+            style={{ transition: 'stroke-dashoffset 0.5s ease-out, stroke 0.5s' }} />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div className="text-4xl font-extrabold tracking-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
           </div>
           <div className="text-xs font-medium mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
-            {isIdle ? '⏸ Away — paused' : running ? 'Focusing…' : sessionId ? 'Paused' : `${duration} min session`}
+            {isIdle ? '⏸ Away — paused' : running ? phaseLabel : phase !== 'idle' ? 'Paused' : phaseLabel}
           </div>
         </div>
       </div>
@@ -199,7 +282,7 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
 
       {/* Controls */}
       <div className="flex items-center gap-3">
-        {!sessionId ? (
+        {phase === 'idle' ? (
           <button className="btn-primary px-8" onClick={handleStart}>
             {icons.play} Start Focus
           </button>
@@ -208,6 +291,11 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
             <button className="btn-primary bg-[#475569] hover:bg-[#334155]" onClick={handlePause}>
               {icons.pause} Pause
             </button>
+            {phase !== 'work' && (
+              <button className="btn-primary bg-[#9333EA] hover:bg-[#7C3AED]" onClick={handleSkip}>
+                ⏭ Skip
+              </button>
+            )}
             <button className="btn-primary bg-[#DC2626] hover:bg-[#B91C1C]" onClick={handleStop}>
               {icons.square} Stop
             </button>
@@ -235,6 +323,13 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
           <div className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Total Focused</div>
         </div>
       </div>
+
+      {/* Preset details */}
+      {phase === 'idle' && (
+        <div className="text-center text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+          {preset.workMinutes}m work → {preset.breakMinutes}m break × {preset.roundsBeforeLongBreak} rounds → {preset.longBreakMinutes}m long break
+        </div>
+      )}
     </div>
   );
 }

@@ -10,6 +10,32 @@ const THRESHOLDS = [
 
 const DEFAULT_BLOCKED_SITES = ['youtube.com', 'twitter.com', 'x.com', 'instagram.com', 'tiktok.com', 'reddit.com'];
 
+/* ── TTS Voice Config (Task 2) ── */
+const PERSONA_VOICE_MAP: Record<string, { rate: number; pitch: number }> = {
+  jowo: { rate: 0.9, pitch: 1.1 },
+  jaksel: { rate: 1.2, pitch: 1.0 },
+  professional: { rate: 1.0, pitch: 0.9 },
+  sundanese: { rate: 0.9, pitch: 1.1 },
+  batak: { rate: 1.1, pitch: 0.8 },
+  corporate: { rate: 1.0, pitch: 0.9 },
+};
+
+function speakNudge(message: string, persona: string, volume = 0.7) {
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(message);
+  const config = PERSONA_VOICE_MAP[persona] || PERSONA_VOICE_MAP.professional;
+  utterance.rate = config.rate;
+  utterance.pitch = config.pitch;
+  utterance.volume = volume;
+  const voices = speechSynthesis.getVoices();
+  const idVoice = voices.find(v => v.lang.startsWith('id'));
+  if (idVoice && ['jowo', 'jaksel', 'sundanese', 'batak'].includes(persona)) {
+    utterance.voice = idVoice;
+  }
+  speechSynthesis.speak(utterance);
+}
+
 export function ReoBubble() {
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -17,34 +43,66 @@ export function ReoBubble() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const [lastNudgeLevel, setLastNudgeLevel] = useState(-1);
   const [deviceToken, setDeviceToken] = useState('extension-default');
+  const [isOnTask, setIsOnTask] = useState<boolean | null>(null); // Task 1: classification result
+  const [classifyReason, setClassifyReason] = useState('');
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [currentPersona, setCurrentPersona] = useState('professional');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isDistractiveRef = useRef(false);
-  const lastNudgeTimeRef = useRef(0); // Task 3: client-side debounce
+  const lastNudgeTimeRef = useRef(0);
+  const classifiedRef = useRef(false); // prevent re-classification
 
-  // Load or create device token from chrome.storage
+  // Load device token + voice/persona preferences
   useEffect(() => {
-    chrome.storage.local.get('reo_device_token', (result) => {
+    chrome.storage.local.get(['reo_device_token', 'voice_enabled', 'reo_persona'], (result) => {
       if (result.reo_device_token) {
         setDeviceToken(result.reo_device_token);
       } else {
         const newToken = 'ext-' + crypto.randomUUID();
         chrome.storage.local.set({ reo_device_token: newToken });
         setDeviceToken(newToken);
-        // Register the new token with the backend
         fetch(`${API_BASE_URL}/api/reo/device/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ device_token: newToken }),
         }).catch(() => {});
       }
+      if (result.voice_enabled) setVoiceEnabled(true);
+      if (result.reo_persona) setCurrentPersona(result.reo_persona);
     });
   }, []);
 
   const triggerNudge = async (escalationLevel: number) => {
     if (isLoading) return;
-
-    // Task 3: Client-side 60s debounce
     if (Date.now() - lastNudgeTimeRef.current < 60000) return;
+
+    // Task 1: Smart whitelisting — classify before nudging
+    if (!classifiedRef.current) {
+      classifiedRef.current = true;
+      try {
+        const classRes = await fetch(`${API_BASE_URL}/api/reo/classify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-device-token': deviceToken },
+          body: JSON.stringify({ url: window.location.href, page_title: document.title }),
+        });
+        const classData = await classRes.json();
+        if (classData.productive && classData.confidence > 0.7) {
+          setIsOnTask(true);
+          setClassifyReason(classData.reason);
+          setMessage('✓ ' + classData.reason);
+          setVisible(true);
+          isDistractiveRef.current = false;
+          if (timerRef.current) clearInterval(timerRef.current);
+          setTimeout(() => { setMessage(''); setVisible(false); }, 8000);
+          return;
+        } else {
+          setIsOnTask(false);
+        }
+      } catch {
+        // Classification failed — proceed with nudge as normal
+      }
+    }
+    if (isOnTask === true) return;
 
     setIsLoading(true);
     lastNudgeTimeRef.current = Date.now();
@@ -52,24 +110,17 @@ export function ReoBubble() {
     const siteUrl = window.location.href;
 
     try {
-      // Try nudge API
       const res = await fetch(`${API_BASE_URL}/api/reo/nudge`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-device-token': deviceToken,
-        },
-        body: JSON.stringify({
-          site_url: siteUrl,
-          time_on_site_seconds: elapsedSec,
-          escalation_level: escalationLevel,
-        }),
+        headers: { 'Content-Type': 'application/json', 'x-device-token': deviceToken },
+        body: JSON.stringify({ site_url: siteUrl, time_on_site_seconds: elapsedSec, escalation_level: escalationLevel }),
       });
       const data = await res.json();
-      // If server returned cached response, still show it
-      setMessage(data.message || 'Hey! Get back to work!');
+      const nudgeMsg = data.message || 'Hey! Get back to work!';
+      setMessage(nudgeMsg);
+      // Task 2: Voice nudge
+      if (voiceEnabled) speakNudge(nudgeMsg, currentPersona);
     } catch {
-      // Fallback to old chat API via background script
       chrome.runtime.sendMessage(
         { action: 'fetchChat', context: `User on ${siteUrl} for ${elapsedSec}s` },
         (response: any) => {
@@ -143,7 +194,30 @@ export function ReoBubble() {
   }, [message]);
 
   // Escalation indicator color
-  const dotColor = lastNudgeLevel >= 2 ? '#DC2626' : lastNudgeLevel >= 1 ? '#EA580C' : '#16A34A';
+  const dotColor = isOnTask === true ? '#16A34A'
+    : lastNudgeLevel >= 2 ? '#DC2626' : lastNudgeLevel >= 1 ? '#EA580C' : '#16A34A';
+
+  // "This is wrong" handler
+  const handleFeedback = async () => {
+    const domain = window.location.hostname.replace('www.', '');
+    try {
+      await fetch(`${API_BASE_URL}/api/reo/classify/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-device-token': deviceToken },
+        body: JSON.stringify({ domain }),
+      });
+      classifiedRef.current = false;
+      setIsOnTask(null);
+      setMessage('Classification reset. I\'ll re-check next time!');
+      setTimeout(() => { setMessage(''); setVisible(false); }, 4000);
+    } catch {}
+  };
+
+  const toggleVoice = () => {
+    const newVal = !voiceEnabled;
+    setVoiceEnabled(newVal);
+    chrome.storage.local.set({ voice_enabled: newVal });
+  };
 
   return (
     <>
@@ -155,6 +229,21 @@ export function ReoBubble() {
               {Math.floor(elapsedSec / 60)}m {elapsedSec % 60}s on this site
             </div>
           )}
+          {/* Feedback + Voice buttons */}
+          <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+            {isOnTask !== null && (
+              <button onClick={handleFeedback}
+                style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', border: '1px solid #ccc', cursor: 'pointer', background: '#fff' }}>
+                🔄 This is wrong
+              </button>
+            )}
+            {'speechSynthesis' in window && (
+              <button onClick={toggleVoice}
+                style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', border: '1px solid #ccc', cursor: 'pointer', background: voiceEnabled ? '#DBEAFE' : '#fff' }}>
+                {voiceEnabled ? '🔊' : '🔇'}
+              </button>
+            )}
+          </div>
         </div>
       )}
       <div
@@ -162,9 +251,11 @@ export function ReoBubble() {
         onClick={() => triggerNudge(Math.min((lastNudgeLevel || 0) + 1, 2))}
         title="Click to poke Reo"
       >
-        {isDistractiveRef.current && (
+        {isOnTask === true ? (
+          <div style={{ position: 'absolute', top: -4, right: -4, background: '#16A34A', color: 'white', fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '8px', zIndex: 10 }}>✓ On-task</div>
+        ) : isDistractiveRef.current ? (
           <div className="reo-indicator" style={{ backgroundColor: dotColor }} />
-        )}
+        ) : null}
         <img
           src={chrome.runtime.getURL('mascot.png')}
           alt="Reo Mascot"
@@ -172,7 +263,7 @@ export function ReoBubble() {
           height={90}
           style={{
             opacity: isLoading ? 0.7 : 1,
-            filter: isLoading ? 'grayscale(50%)' : 'none',
+            filter: isLoading ? 'grayscale(50%)' : isOnTask === true ? 'hue-rotate(100deg) saturate(0.8)' : 'none',
           }}
         />
       </div>

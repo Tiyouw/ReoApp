@@ -119,3 +119,7 @@ dist-tsc/
 
 # Superpowers local state
 .superpowers/brainstorm/*/state/
+
+# Deploy scripts (contain secrets)
+deploy.sh
+deploy.ps1

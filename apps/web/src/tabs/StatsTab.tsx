@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { reoApi } from '../api';
 import { icons } from '../icons';
+import { ProductivityScore } from '../components/ProductivityScore';
 
 interface Stats {
   total_nudges: number;
@@ -56,6 +57,7 @@ function BarChart({ data }: { data: Record<string, number> }) {
 export function StatsTab() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [summary, setSummary] = useState<DailySummary | null>(null);
+  const [score, setScore] = useState<{ score: number; grade: string; breakdown: { focus: number; nudges: number; streak: number; tasks: number } } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -63,7 +65,8 @@ export function StatsTab() {
     Promise.all([
       reoApi.getStats('7d').catch(() => null),
       reoApi.getDailySummary(refresh).catch(() => null),
-    ]).then(([s, d]) => {
+      reoApi.getScore().catch(() => null),
+    ]).then(([s, d, sc]) => {
       if (s) {
         // Filter out Reo's own URLs from top sites
         s.top_sites = (s.top_sites || []).filter((site: any) =>
@@ -72,12 +75,18 @@ export function StatsTab() {
         setStats(s);
       }
       setSummary(d);
+      if (sc) setScore(sc);
       setLoading(false);
       setRefreshing(false);
     });
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+    // Auto-refresh score every 5 minutes
+    const interval = setInterval(() => { reoApi.getScore().then(sc => { if (sc) setScore(sc); }).catch(() => {}); }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -99,6 +108,11 @@ export function StatsTab() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Productivity Score */}
+      {score && (
+        <ProductivityScore score={score.score} grade={score.grade} breakdown={score.breakdown} />
+      )}
+
       {/* Stat cards */}
       <div className="grid grid-cols-3 gap-4">
         <div className="card text-center">

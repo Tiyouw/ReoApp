@@ -162,6 +162,23 @@ export const reoApi = {
     api<{ success: boolean }>('/api/reo/account/data', {
       method: 'DELETE',
     }),
+
+  /* ── Phase 3: Smart Whitelisting ── */
+  classify: (url: string, pageTitle: string) =>
+    api<{ productive: boolean; reason: string; confidence: number }>('/api/reo/classify', {
+      method: 'POST',
+      body: JSON.stringify({ url, page_title: pageTitle }),
+    }),
+
+  classifyFeedback: (domain: string) =>
+    api('/api/reo/classify/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ domain }),
+    }),
+
+  /* ── Phase 3: Productivity Score ── */
+  getScore: () =>
+    api<{ score: number; grade: string; breakdown: { focus: number; nudges: number; streak: number; tasks: number } }>('/api/reo/score/today'),
 };
 
 export { getDeviceToken };
