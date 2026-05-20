@@ -15,6 +15,7 @@ const PRESETS: PomodoroPreset[] = [
   { name: 'Classic', workMinutes: 25, breakMinutes: 5, longBreakMinutes: 15, roundsBeforeLongBreak: 4 },
   { name: 'Deep Work', workMinutes: 50, breakMinutes: 10, longBreakMinutes: 30, roundsBeforeLongBreak: 2 },
   { name: 'Sprint', workMinutes: 15, breakMinutes: 3, longBreakMinutes: 10, roundsBeforeLongBreak: 4 },
+  { name: 'Custom', workMinutes: 25, breakMinutes: 5, longBreakMinutes: 15, roundsBeforeLongBreak: 4 },
 ];
 
 type Phase = 'idle' | 'work' | 'break' | 'longBreak';
@@ -39,13 +40,21 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
   const [completedToday, setCompletedToday] = useState(0);
   const [totalMinutes, setTotalMinutes] = useState(0);
   const [isIdle, setIsIdle] = useState(false);
+  const [blockMode, setBlockMode] = useState(false);
+  const [customWork, setCustomWork] = useState(25);
+  const [customBreak, setCustomBreak] = useState(5);
+  const [customLongBreak, setCustomLongBreak] = useState(15);
+  const [customRounds, setCustomRounds] = useState(4);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastActivityRef = useRef(Date.now());
   const idleCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load task + today's stats
+  // Load task + today's stats + block mode preference
   useEffect(() => {
-    reoApi.getState().then(d => setTask(d.task || '')).catch(() => {});
+    reoApi.getState().then(d => {
+      setTask(d.task || '');
+      if (d.block_mode_enabled) setBlockMode(true);
+    }).catch(() => {});
     reoApi.getStats('1d').then(d => {
       setCompletedToday(d.total_focus_minutes > 0 ? Math.ceil(d.total_focus_minutes / 25) : 0);
       setTotalMinutes(d.total_focus_minutes || 0);
@@ -132,12 +141,20 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
       // Auto-start break
       setTimeout(() => setRunning(true), 500);
     } else {
-      // Break/long break complete
+      // Break/long break complete — notify user
+      if (Notification.permission === 'granted') {
+        new Notification('Reo — Break Over! ⏰', {
+          body: phase === 'longBreak' ? 'Cycle complete! Ready for a fresh set?' : `Time for round ${round + 1}! Let's go.`,
+          icon: '/mascot.png',
+        });
+      }
       if (phase === 'longBreak') {
         setRound(1);
         showToast('🔄 Cycle complete! Ready for a new set?');
         setPhase('idle');
         setSecondsLeft(preset.workMinutes * 60);
+        // Clear focus state on cycle end
+        reoApi.saveState({ focus_active: false }).catch(() => {});
       } else {
         setRound(r => r + 1);
         showToast(`Break's over! Ready for round ${round + 1}?`);
@@ -148,15 +165,23 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
   };
 
   const handleStart = async () => {
+    // Apply custom preset values if Custom is selected
+    const activePreset = preset.name === 'Custom'
+      ? { ...preset, workMinutes: customWork, breakMinutes: customBreak, longBreakMinutes: customLongBreak, roundsBeforeLongBreak: customRounds }
+      : preset;
+    if (preset.name === 'Custom') setPreset(activePreset);
+
     try {
       const res = await reoApi.startFocus(task);
       setSessionId(res.session_id);
       setPhase('work');
-      setSecondsLeft(preset.workMinutes * 60);
+      setSecondsLeft(activePreset.workMinutes * 60);
       setRunning(true);
       setIsIdle(false);
       lastActivityRef.current = Date.now();
-      showToast(`Work phase ${round}/${preset.roundsBeforeLongBreak} — lock in!`);
+      // Broadcast focus state to backend (extension will sync)
+      reoApi.saveState({ focus_active: true, focus_task: task, block_mode_enabled: blockMode }).catch(() => {});
+      showToast(`Work phase ${round}/${activePreset.roundsBeforeLongBreak} — lock in!`);
     } catch {
       showToast('Failed to start session', 'error');
     }
@@ -173,6 +198,8 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
     setPhase('idle');
     setRound(1);
     setSecondsLeft(preset.workMinutes * 60);
+    // Clear focus state on backend
+    reoApi.saveState({ focus_active: false }).catch(() => {});
     showToast('Session cancelled', 'error');
   };
 
@@ -214,17 +241,68 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
     <div className="flex flex-col items-center gap-6 py-4">
       {/* Preset selector */}
       {phase === 'idle' && (
-        <div className="flex gap-2">
-          {PRESETS.map(p => (
-            <button key={p.name} type="button" onClick={() => setPreset(p)}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                p.name === preset.name
-                  ? 'bg-[#2563EB] text-white shadow-sm'
-                  : 'bg-[#F1F5F9] hover:bg-[#E2E8F0]'
-              }`} style={p.name !== preset.name ? { color: 'var(--color-text-secondary)' } : {}}>
-              {p.name}
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex gap-2 flex-wrap justify-center">
+            {PRESETS.map(p => (
+              <button key={p.name} type="button" onClick={() => setPreset(p)}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                  p.name === preset.name
+                    ? 'bg-[#2563EB] text-white shadow-sm'
+                    : 'bg-[#F1F5F9] hover:bg-[#E2E8F0]'
+                }`} style={p.name !== preset.name ? { color: 'var(--color-text-secondary)' } : {}}>
+                {p.name}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom preset inputs */}
+          {preset.name === 'Custom' && (
+            <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Work (min)</span>
+                <input type="number" min={1} max={120} value={customWork} onChange={e => setCustomWork(+e.target.value || 1)}
+                  className="input-field text-sm text-center" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Break (min)</span>
+                <input type="number" min={1} max={30} value={customBreak} onChange={e => setCustomBreak(+e.target.value || 1)}
+                  className="input-field text-sm text-center" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Long break (min)</span>
+                <input type="number" min={1} max={60} value={customLongBreak} onChange={e => setCustomLongBreak(+e.target.value || 1)}
+                  className="input-field text-sm text-center" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Rounds</span>
+                <input type="number" min={1} max={10} value={customRounds} onChange={e => setCustomRounds(+e.target.value || 1)}
+                  className="input-field text-sm text-center" />
+              </label>
+            </div>
+          )}
+
+          {/* Block mode toggle */}
+          <div className="flex items-center gap-3 w-full max-w-sm px-3 py-2.5 rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">🚫 Block distracting sites</p>
+              <p className="text-[0.6875rem]" style={{ color: 'var(--color-text-tertiary)' }}>Full-page blocker during focus</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !blockMode;
+                setBlockMode(next);
+                reoApi.saveState({ block_mode_enabled: next }).catch(() => {});
+              }}
+              className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+                blockMode ? 'bg-[#2563EB]' : 'bg-[#CBD5E1]'
+              }`}
+              role="switch" aria-checked={blockMode} aria-label="Toggle site blocking">
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${
+                blockMode ? 'translate-x-5' : ''
+              }`} />
             </button>
-          ))}
+          </div>
         </div>
       )}
 
@@ -327,7 +405,7 @@ export function FocusTab({ showToast }: { showToast: (msg: string, type?: 'succe
       {/* Preset details */}
       {phase === 'idle' && (
         <div className="text-center text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-          {preset.workMinutes}m work → {preset.breakMinutes}m break × {preset.roundsBeforeLongBreak} rounds → {preset.longBreakMinutes}m long break
+          {preset.name === 'Custom' ? customWork : preset.workMinutes}m work → {preset.name === 'Custom' ? customBreak : preset.breakMinutes}m break × {preset.name === 'Custom' ? customRounds : preset.roundsBeforeLongBreak} rounds → {preset.name === 'Custom' ? customLongBreak : preset.longBreakMinutes}m long break
         </div>
       )}
     </div>

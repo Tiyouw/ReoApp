@@ -1,7 +1,7 @@
 import { API_BASE_URL } from './config';
 
-/* ── Sync blocked sites from Supabase every 5 minutes ── */
-async function syncBlockedSites() {
+/* ── Sync state from Supabase every 5 minutes ── */
+async function syncState() {
   try {
     const result = await chrome.storage.local.get('reo_device_token');
     const token = result.reo_device_token;
@@ -12,29 +12,48 @@ async function syncBlockedSites() {
     });
     const data = await res.json();
 
+    const updates: Record<string, any> = {};
+
     if (data.blocked_sites && Array.isArray(data.blocked_sites)) {
-      await chrome.storage.local.set({ reo_blocked_sites: data.blocked_sites });
+      updates.reo_blocked_sites = data.blocked_sites;
     }
+
+    // Sync focus session state for the blocker
+    updates.focus_active = !!data.focus_active;
+    updates.block_mode_enabled = !!data.block_mode_enabled;
+    updates.reo_focus_task = data.focus_task || data.task || '';
+
+    // If focus just ended, clear session whitelist
+    if (!data.focus_active) {
+      updates.reo_session_whitelist = [];
+    }
+
+    // Sync persona
+    if (data.persona) {
+      updates.reo_persona = data.persona;
+    }
+
+    await chrome.storage.local.set(updates);
   } catch (err) {
-    console.error('[Reo] Failed to sync blocked sites:', err);
+    console.error('[Reo] Failed to sync state:', err);
   }
 }
 
 // Sync on extension install/startup
 chrome.runtime.onInstalled.addListener(() => {
-  syncBlockedSites();
+  syncState();
   // Set up periodic sync every 5 minutes
-  chrome.alarms.create('syncBlockedSites', { periodInMinutes: 5 });
+  chrome.alarms.create('syncState', { periodInMinutes: 5 });
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  syncBlockedSites();
+  syncState();
 });
 
 // Handle alarm for periodic sync
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'syncBlockedSites') {
-    syncBlockedSites();
+  if (alarm.name === 'syncState') {
+    syncState();
   }
 });
 

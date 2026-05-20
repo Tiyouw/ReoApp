@@ -2,7 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { reoApi } from '../api';
 import { icons } from '../icons';
 
-export function SettingsTab({ showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void }) {
+interface SettingsTabProps {
+  showToast: (msg: string, type?: 'success' | 'error') => void;
+  authUser: { id: string; email: string } | null;
+  onSignIn: () => void;
+  onSignOut: () => void;
+}
+
+export function SettingsTab({ showToast, authUser, onSignIn, onSignOut }: SettingsTabProps) {
   const [pushStatus, setPushStatus] = useState<'unsupported' | 'default' | 'granted' | 'denied'>('default');
   const [pushEnabled, setPushEnabled] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -13,6 +20,7 @@ export function SettingsTab({ showToast }: { showToast: (msg: string, type?: 'su
   const [newSite, setNewSite] = useState('');
   const [savingSites, setSavingSites] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [linking, setLinking] = useState(false);
 
   useEffect(() => {
     // Check push notification support
@@ -115,6 +123,19 @@ export function SettingsTab({ showToast }: { showToast: (msg: string, type?: 'su
     }
   };
 
+  // Link device to account
+  const handleLinkDevice = async () => {
+    setLinking(true);
+    try {
+      const result = await reoApi.authLinkDevice();
+      showToast(`Linked ${result.linked} records to your account`);
+    } catch {
+      showToast('Failed to link device', 'error');
+    } finally {
+      setLinking(false);
+    }
+  };
+
   // Blocked sites management
   const addSite = () => {
     const site = newSite.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/$/, '');
@@ -151,7 +172,61 @@ export function SettingsTab({ showToast }: { showToast: (msg: string, type?: 'su
 
   return (
     <div className="flex flex-col gap-5 max-w-2xl mx-auto">
-      {/* Notifications */}
+      {/* Account */}
+      <div className="card">
+        <div className="flex items-center gap-2.5 mb-4">
+          <div className="feature-icon bg-[#DBEAFE] text-[#2563EB]">{icons.user}</div>
+          <div>
+            <h2 className="text-sm font-bold">Account</h2>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+              {authUser ? 'Signed in — data syncs across devices' : 'Sign in to sync data across devices'}
+            </p>
+          </div>
+        </div>
+
+        {authUser ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-[#F0FDF4] border border-[#BBF7D0]">
+              <div className="w-8 h-8 rounded-full bg-[#2563EB] flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                {authUser.email.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate">{authUser.email}</p>
+                <p className="text-[0.6875rem] text-[#16A34A] font-medium">Authenticated ✓</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={handleLinkDevice} disabled={linking}
+                className="flex-1 text-sm font-semibold px-4 py-2 rounded-lg border hover:bg-[#DBEAFE] hover:border-[#93C5FD] transition-colors"
+                style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                {linking ? <>{icons.loader} Linking…</> : '🔗 Re-link Device'}
+              </button>
+              <button type="button" onClick={onSignOut}
+                className="flex-1 text-sm font-semibold px-4 py-2 rounded-lg border hover:bg-[#FEF2F2] hover:text-[#DC2626] hover:border-[#FCA5A5] transition-colors"
+                style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                {icons.logOut} Sign Out
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-[#FFF7ED] border border-[#FDBA74]">
+              <div className="w-8 h-8 rounded-full bg-[#94A3B8] flex items-center justify-center text-white text-sm font-bold flex-shrink-0">?</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">Anonymous</p>
+                <p className="text-[0.6875rem] text-[#EA580C] font-medium">Device-only — data tied to this browser</p>
+              </div>
+            </div>
+            <button type="button" onClick={onSignIn}
+              className="btn-primary w-full text-sm">
+              {icons.mail} Sign in with Email
+            </button>
+            <p className="text-[0.6875rem] text-center" style={{ color: 'var(--color-text-tertiary)' }}>
+              Your existing data will be linked to your account automatically.
+            </p>
+          </div>
+        )}
+      </div>
       <div className="card">
         <div className="flex items-center gap-2.5 mb-4">
           <div className="feature-icon bg-[#FFF7ED] text-[#EA580C]">{icons.bell}</div>

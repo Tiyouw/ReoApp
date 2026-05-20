@@ -8,6 +8,7 @@ import { exportUserData } from './export';
 import { saveSubscription, removeSubscription, sendPushToDevice, getVapidPublicKey } from './push';
 import { classifyPage, invalidateClassification } from './classify';
 import { getTodayScore } from './score';
+import { sendWeeklyRecap } from './recap';
 
 const app = express();
 app.use(cors());
@@ -83,6 +84,9 @@ app.post('/api/reo/state', requireDeviceToken, async (req, res) => {
   if (req.body.persona) updates.persona = req.body.persona;
   if (req.body.task !== undefined) updates.task = req.body.task;
   if (req.body.blocked_sites) updates.blocked_sites = req.body.blocked_sites;
+  if (req.body.focus_active !== undefined) updates.focus_active = req.body.focus_active;
+  if (req.body.focus_task !== undefined) updates.focus_task = req.body.focus_task;
+  if (req.body.block_mode_enabled !== undefined) updates.block_mode_enabled = req.body.block_mode_enabled;
 
   const { data, error } = await supabase
     .from('settings')
@@ -731,7 +735,23 @@ app.get('/api/reo/score/today', requireDeviceToken, async (req, res) => {
   }
 });
 
-/* ── Serve web frontend (production) ── */
+/* ── Phase 3 Task 7: Weekly Email Recap ── */
+app.post('/api/reo/recap/weekly', authenticateUser, async (req, res) => {
+  try {
+    const userId = (req as any).userId;
+    const deviceToken = (req as any).deviceToken;
+    const result = await sendWeeklyRecap({ userId, deviceToken });
+    if (result.sent) {
+      res.json({ success: true, message: 'Weekly recap sent!' });
+    } else {
+      res.json({ success: false, error: result.error });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ── Static files (web dashboard) ── */
 const webDistPath = path.join(__dirname, '..', '..', 'web', 'dist');
 app.use(express.static(webDistPath));
 app.get('*', (req, res, next) => {

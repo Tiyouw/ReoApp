@@ -56,7 +56,7 @@ export const reoApi = {
 
   getState: () => api('/api/reo/state'),
 
-  saveState: (data: { persona?: string; task?: string; blocked_sites?: string[] }) =>
+  saveState: (data: { persona?: string; task?: string; blocked_sites?: string[]; focus_active?: boolean; focus_task?: string; block_mode_enabled?: boolean }) =>
     api('/api/reo/state', { method: 'POST', body: JSON.stringify(data) }),
 
   chat: (message: string) =>
@@ -179,6 +179,27 @@ export const reoApi = {
   /* ── Phase 3: Productivity Score ── */
   getScore: () =>
     api<{ score: number; grade: string; breakdown: { focus: number; nudges: number; streak: number; tasks: number } }>('/api/reo/score/today'),
+
+  /* ── Phase 3: Weekly Recap ── */
+  sendWeeklyRecap: () =>
+    api<{ success: boolean; error?: string }>('/api/reo/recap/weekly', { method: 'POST' }),
 };
+
+/* ── Auth helpers ── */
+export function getJwt(): string | null {
+  return localStorage.getItem('reo_jwt');
+}
+
+export function setJwt(jwt: string): void {
+  localStorage.setItem('reo_jwt', jwt);
+}
+
+export function clearJwt(): void {
+  localStorage.removeItem('reo_jwt');
+}
+
+export function isAuthenticated(): boolean {
+  return !!localStorage.getItem('reo_jwt');
+}
 
 export { getDeviceToken };
