@@ -36,10 +36,12 @@ function getGreeting(): string {
 
 export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void }) {
   const [persona, setPersona] = useState('jowo');
+  const [sweepPersona, setSweepPersona] = useState<string | null>(null);
+  const [popPersona, setPopPersona] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTask, setNewTask] = useState('');
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(true);
   const [loading, setLoading] = useState(true);
   const [mood, setMood] = useState<MascotMood>('happy');
   const dragItem = useRef<number | null>(null);
@@ -98,8 +100,9 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
     try {
       await reoApi.saveState({ persona, task: activeTask });
       setSaved(true);
-      showToast('Settings saved — Reo knows your tasks now');
-      setTimeout(() => setSaved(false), 3000);
+      showToast('Vibe updated successfully!');
+      setPopPersona(persona);
+      setTimeout(() => setPopPersona(null), 500);
     } catch {
       showToast('Failed to save. Check your connection.', 'error');
     } finally {
@@ -296,21 +299,31 @@ export function HomeTab({ showToast }: { showToast: (msg: string, type?: 'succes
             <legend className="sr-only">Choose Reo's personality</legend>
             {PERSONAS.map(p => (
               <button key={p.value} type="button" role="radio" aria-checked={persona === p.value}
-                onClick={() => setPersona(p.value)} className="persona-option" data-selected={persona === p.value}>
-                <div className="flex items-center gap-1.5">
-                  <span className={`badge ${p.color} text-[0.6875rem]`}>{p.label.split(' ')[0]}</span>
-                  {(p as any).isNew && <span className="badge bg-[#D1FAE5] text-[#059669] text-[0.5625rem]">NEW</span>}
+                onClick={() => {
+                  setPersona(p.value);
+                  setSweepPersona(p.value);
+                  setTimeout(() => setSweepPersona(null), 600);
+                  setSaved(false);
+                }}
+                className={`persona-option ${sweepPersona === p.value ? 'lightsweep-active' : ''} ${popPersona === p.value ? 'pop-active' : ''}`}
+                data-selected={persona === p.value}
+                data-active-edit={persona === p.value && !saved}>
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`badge ${p.color} text-[0.6875rem]`}>{p.label.split(' ')[0]}</span>
+                    {(p as any).isNew && <span className="badge bg-[#D1FAE5] text-[#059669] text-[0.5625rem]">NEW</span>}
+                  </div>
+                  {persona === p.value && <span className="text-[#2563EB] flex-shrink-0">{icons.check}</span>}
                 </div>
-                <div className="flex-1 min-w-0">
+                <div className="w-full">
                   <div className="text-sm font-semibold">{p.label}</div>
-                  <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{p.desc}</div>
+                  <div className="persona-desc text-xs leading-normal" style={{ color: 'var(--color-text-tertiary)' }}>{p.desc}</div>
                 </div>
-                {persona === p.value && <span className="text-[#2563EB]">{icons.check}</span>}
               </button>
             ))}
           </fieldset>
-          <button type="submit" disabled={saving} className="btn-primary w-full mt-5" aria-label="Save Reo settings">
-            {saving ? <>{icons.loader} Saving…</> : saved ? <>{icons.check} Saved!</> : 'Save Settings'}
+          <button type="submit" disabled={saving} className="btn-primary w-full mt-5" aria-label="Apply Persona/Vibe">
+            {saving ? <>{icons.loader} Applying Persona/Vibe…</> : saved ? <>{icons.check} Persona/Vibe Applied!</> : 'Apply Persona/Vibe'}
           </button>
         </div>
       </form>

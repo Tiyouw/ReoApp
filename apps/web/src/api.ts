@@ -114,7 +114,7 @@ export const reoApi = {
   authLogin: (email: string) =>
     api<{ success: boolean }>('/api/reo/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, redirectTo: window.location.origin }),
     }),
 
   authLinkDevice: () =>

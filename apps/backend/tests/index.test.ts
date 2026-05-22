@@ -50,4 +50,26 @@ describe('Backend API v2', () => {
       .send({});
     expect(res.status).toBe(400);
   });
-});
+
+  it('POST /api/reo/auth/login requires email', async () => {
+    const res = await request(app)
+      .post('/api/reo/auth/login')
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /api/reo/auth/login attempts magic link with redirectTo', async () => {
+    const res = await request(app)
+      .post('/api/reo/auth/login')
+      .send({ email: 'test@example.com', redirectTo: 'http://localhost:5173' });
+    // Since we connect to live Supabase, it might succeed or rate-limit or fail,
+    // but the status code will be 200 (success) or 429/500 depending on credentials and rate limits.
+    // We just want to check it does not crash and returns the expected format.
+    expect([200, 429, 500]).toContain(res.status);
+    if (res.status === 200) {
+      expect(res.body.success).toBe(true);
+    } else {
+      expect(res.body.error).toBeDefined();
+    }
+  });
+}, 20000);

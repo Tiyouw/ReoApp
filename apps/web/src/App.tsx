@@ -112,6 +112,7 @@ function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(0);
   const [task, setTask] = useState('');
   const [persona, setPersona] = useState('jowo');
+  const [sweepPersona, setSweepPersona] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const personas = [
@@ -165,14 +166,23 @@ function Onboarding({ onComplete }: { onComplete: () => void }) {
             </div>
             <div className="flex flex-col gap-2 mb-5">
               {personas.map(p => (
-                <button key={p.value} type="button" onClick={() => setPersona(p.value)}
-                  className="persona-option" data-selected={persona === p.value}>
-                  <span className={`badge ${p.color} text-[0.6875rem]`}>{p.label.split(' ')[0]}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold">{p.label}</div>
-                    <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{p.desc}</div>
+                <button key={p.value} type="button"
+                  onClick={() => {
+                    setPersona(p.value);
+                    setSweepPersona(p.value);
+                    setTimeout(() => setSweepPersona(null), 600);
+                  }}
+                  className={`persona-option ${sweepPersona === p.value ? 'lightsweep-active' : ''}`}
+                  data-selected={persona === p.value}
+                  data-active-edit={persona === p.value}>
+                  <div className="flex items-center justify-between w-full">
+                    <span className={`badge ${p.color} text-[0.6875rem]`}>{p.label.split(' ')[0]}</span>
+                    {persona === p.value && <span className="text-[#2563EB] flex-shrink-0">{icons.check}</span>}
                   </div>
-                  {persona === p.value && <span className="text-[#2563EB]">{icons.check}</span>}
+                  <div className="w-full">
+                    <div className="text-sm font-semibold">{p.label}</div>
+                    <div className="persona-desc text-xs leading-normal" style={{ color: 'var(--color-text-tertiary)' }}>{p.desc}</div>
+                  </div>
                 </button>
               ))}
             </div>

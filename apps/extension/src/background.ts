@@ -57,6 +57,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+// Trigger sync immediately when token changes
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes.reo_device_token) {
+    syncState();
+  }
+});
+
 /* ── Handle messages from content scripts ── */
 chrome.runtime.onMessage.addListener((request: any, sender: any, sendResponse: any) => {
   if (request.action === 'fetchChat') {

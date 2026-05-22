@@ -582,10 +582,19 @@ Task: "${settings?.task || 'general'}". Keep it 2-4 sentences, encouraging but h
 
 /* ── Auth: magic link login ── */
 app.post('/api/reo/auth/login', async (req, res) => {
-  const { email } = req.body;
+  const { email, redirectTo } = req.body;
   if (!email) return res.status(400).json({ error: 'email required' });
 
-  const { error } = await supabase.auth.signInWithOtp({ email });
+  // Fallback to origin or referer header if redirectTo is not provided
+  const fallbackRedirect = req.headers.origin || req.headers.referer || 'https://reo-backend-287020541953.asia-southeast2.run.app';
+  const emailRedirectTo = redirectTo || fallbackRedirect;
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo,
+    },
+  });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true, message: 'Check your email for a magic link!' });
 });
